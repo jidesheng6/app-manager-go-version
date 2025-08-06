@@ -1,0 +1,297 @@
+# App Manager Go v1
+
+一个用于管理Java应用程序的命令行工具，基于Go语言开发，是原Shell脚本版本的现代化重写。
+
+## 功能特性
+
+### 🚀 应用生命周期管理
+- **启动应用**: 支持单个或批量启动Java应用
+- **停止应用**: 优雅停止或强制终止应用
+- **重启应用**: 安全重启应用程序
+- **状态查询**: 实时查看应用运行状态、资源使用情况
+
+### 📁 项目管理
+- **项目初始化**: 自动创建标准化目录结构
+- **配置管理**: 统一的YAML配置文件管理
+- **更新准备**: 安全的应用更新流程
+
+### 📋 日志管理
+- **日志查看**: 支持实时跟踪和历史日志查看
+- **日志轮转**: 自动日志文件轮转和清理
+- **彩色输出**: 根据日志级别自动着色显示
+
+### 💾 备份功能
+- **项目备份**: 完整的项目文件备份
+- **自动清理**: 根据配置自动清理过期备份
+- **压缩存储**: ZIP格式压缩存储，节省空间
+
+### ⚙️ 系统集成
+- **Systemd服务**: 支持创建和管理systemd服务
+- **开机自启**: 配置应用开机自动启动
+- **进程监控**: 实时监控应用进程状态
+
+## 安装
+
+### 从源码编译
+
+```bash
+# 克隆项目
+git clone <repository-url>
+cd app-manager-go-v1
+
+# 编译
+go build -o app-manager main.go
+
+# 安装到系统路径（可选）
+sudo mv app-manager /usr/local/bin/
+```
+
+### 下载预编译版本
+
+从[Releases页面](releases)下载适合您系统的预编译版本。
+
+## 快速开始
+
+### 1. 初始化项目
+
+```bash
+# 在当前目录初始化项目
+app-manager init
+
+# 或在指定目录初始化
+app-manager init /opt/myproject
+```
+
+初始化后的目录结构：
+```
+project_root/
+├── project_backend/          # 后端应用目录
+│   ├── config/              # 配置文件目录
+│   ├── logs/                # 日志文件目录
+│   ├── pids/                # PID文件目录
+│   ├── file_upload/         # 文件上传目录
+│   └── rotate_logs/         # 轮转日志目录
+├── project_frontend/         # 前端文件目录
+├── project_backup/          # 备份文件目录
+├── project_update/          # 更新文件目录
+├── project_cache/           # 缓存目录
+└── .app-manager.yaml        # 配置文件
+```
+
+### 2. 部署应用
+
+将您的Java应用文件（.jar或.war）复制到`project_backend`目录：
+
+```bash
+cp myapp.jar project_backend/
+```
+
+### 3. 管理应用
+
+```bash
+# 查看所有应用状态
+app-manager status
+
+# 启动应用
+app-manager start myapp
+
+# 查看应用日志
+app-manager logs myapp -f
+
+# 停止应用
+app-manager stop myapp
+
+# 重启应用
+app-manager restart myapp
+```
+
+## 命令参考
+
+### 基础命令
+
+| 命令 | 描述 | 示例 |
+|------|------|------|
+| `init` | 初始化项目目录结构 | `app-manager init` |
+| `start` | 启动应用 | `app-manager start myapp` |
+| `stop` | 停止应用 | `app-manager stop myapp` |
+| `restart` | 重启应用 | `app-manager restart myapp` |
+| `status` | 查看应用状态 | `app-manager status` |
+| `logs` | 查看应用日志 | `app-manager logs myapp -f` |
+
+### 高级命令
+
+| 命令 | 描述 | 示例 |
+|------|------|------|
+| `backup` | 备份项目文件 | `app-manager backup --name release-v1.0` |
+| `update` | 准备应用更新 | `app-manager update` |
+| `logrotate` | 执行日志轮转 | `app-manager logrotate` |
+| `service` | 管理systemd服务 | `app-manager service create myapp` |
+| `version` | 显示版本信息 | `app-manager version` |
+
+### 常用选项
+
+| 选项 | 描述 |
+|------|------|
+| `--config` | 指定配置文件路径 |
+| `--verbose, -v` | 详细输出模式 |
+| `--all, -a` | 应用于所有应用 |
+| `--force, -f` | 强制执行操作 |
+| `--follow, -f` | 实时跟踪（日志命令） |
+| `--lines, -n` | 指定行数（日志命令） |
+
+## 配置文件
+
+配置文件`.app-manager.yaml`包含以下主要配置项：
+
+```yaml
+global:
+  project_root: "/path/to/project"
+  java_path: "java"
+
+application:
+  app_type: "jar"  # jar, war, mixed
+  jvm_params: "-Xms512m -Xmx1024m"
+
+backup:
+  backup_prefix: "backup"
+  backup_retention_days: 7
+
+logrotate:
+  logrotate_size: "10MB"
+  logrotate_cycle: "daily"
+  logrotate_rotate: 5
+
+systemd:
+  service_restart: "always"
+  service_restart_sec: "10"
+  service_timeout_start_sec: "60"
+  service_timeout_stop_sec: "30"
+```
+
+## 使用场景
+
+### 开发环境
+- 快速启动/停止开发中的Java应用
+- 实时查看应用日志进行调试
+- 管理多个微服务应用
+
+### 测试环境
+- 批量管理测试应用
+- 自动化测试前的环境准备
+- 测试数据备份和恢复
+
+### 生产环境
+- 应用的安全启停和重启
+- 定期备份和日志轮转
+- 系统服务集成和监控
+
+## 最佳实践
+
+### 1. 配置管理
+- 为不同环境维护不同的配置文件
+- 使用环境变量覆盖敏感配置
+- 定期备份配置文件
+
+### 2. 日志管理
+- 配置合适的日志轮转策略
+- 定期清理过期日志文件
+- 使用日志聚合工具收集日志
+
+### 3. 备份策略
+- 在重要操作前创建备份
+- 定期验证备份文件的完整性
+- 制定备份恢复流程
+
+### 4. 监控告警
+- 结合systemd服务实现自动重启
+- 配置应用健康检查
+- 设置资源使用告警
+
+## 故障排除
+
+### 常见问题
+
+**Q: 应用启动失败**
+```bash
+# 检查应用状态
+app-manager status myapp
+
+# 查看详细日志
+app-manager logs myapp -n 100
+
+# 检查配置文件
+cat project_backend/config/myapp.properties
+```
+
+**Q: 日志文件过大**
+```bash
+# 手动执行日志轮转
+app-manager logrotate
+
+# 检查轮转配置
+grep -A 5 "logrotate:" .app-manager.yaml
+```
+
+**Q: 备份失败**
+```bash
+# 检查磁盘空间
+df -h
+
+# 检查备份目录权限
+ls -la project_backup/
+```
+
+### 调试模式
+
+使用`--verbose`选项获取详细输出：
+
+```bash
+app-manager --verbose start myapp
+```
+
+## 贡献
+
+欢迎提交Issue和Pull Request来改进这个项目。
+
+### 开发环境设置
+
+```bash
+# 克隆项目
+git clone <repository-url>
+cd app-manager-go-v1
+
+# 安装依赖
+go mod tidy
+
+# 运行测试
+go test ./...
+
+# 构建
+go build -o app-manager main.go
+```
+
+## 许可证
+
+本项目采用MIT许可证，详见[LICENSE](LICENSE)文件。
+
+## 更新日志
+
+### v1.0.0
+- 初始版本发布
+- 完整的应用生命周期管理
+- 项目初始化和配置管理
+- 日志查看和轮转功能
+- 备份和恢复功能
+- Systemd服务集成
+
+## 支持
+
+如果您在使用过程中遇到问题，请：
+
+1. 查看本文档的故障排除部分
+2. 搜索已有的[Issues](issues)
+3. 创建新的Issue并提供详细信息
+
+---
+
+**注意**: 本工具主要针对Linux环境设计，部分功能（如systemd服务）在Windows环境下不可用。

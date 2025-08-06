@@ -1,0 +1,332 @@
+# golangci-lint configuration file
+# See: https://golangci-lint.run/usage/configuration/
+
+run:
+  # Timeout for analysis
+  timeout: 5m
+  
+  # Exit code when at least one issue was found
+  issues-exit-code: 1
+  
+  # Include test files or not
+  tests: true
+  
+  # List of build tags, comma separated
+  build-tags:
+    - integration
+
+# Output configuration options
+output:
+  # Colored output
+  format: colored-line-number
+  
+  # Print lines of code with issue
+  print-issued-lines: true
+  
+  # Print linter name in the end of issue text
+  print-linter-name: true
+  
+  # Make issues output unique by line
+  uniq-by-line: true
+  
+  # Add a prefix to the output file references
+  path-prefix: ""
+  
+  # Sort results by: filepath, line and column
+  sort-results: false
+
+# All available settings of specific linters
+linters-settings:
+  # Errcheck settings
+  errcheck:
+    # Report about not checking of errors in type assertions: `a := b.(MyStruct)`;
+    check-type-assertions: true
+    
+    # Report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`;
+    check-blank: false
+    
+    # List of functions to exclude from checking
+    exclude-functions:
+      - io/ioutil.ReadFile
+      - io.Copy(*bytes.Buffer)
+      - io.Copy(os.Stdout)
+
+  # Govet settings
+  govet:
+    # Report about shadowed variables
+    check-shadowing: true
+    
+    # Settings per analyzer
+    settings:
+      printf:
+        # Comma-separated list of print function names to check
+        funcs:
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+
+  # Gofmt settings
+  gofmt:
+    # Simplify code: gofmt with `-s` option
+    simplify: true
+
+  # Goimports settings
+  goimports:
+    # Put imports beginning with prefix after 3rd-party packages
+    local-prefixes: github.com/your-org/your-project
+
+  # Gocyclo settings
+  gocyclo:
+    # Minimal code complexity to report
+    min-complexity: 15
+
+  # Maligned settings
+  maligned:
+    # Print struct with more effective memory layout
+    suggest-new: true
+
+  # Dupl settings
+  dupl:
+    # Tokens count to trigger issue
+    threshold: 100
+
+  # Goconst settings
+  goconst:
+    # Minimal length of string constant
+    min-len: 3
+    
+    # Minimum occurrences of constant string count to trigger issue
+    min-occurrences: 3
+
+  # Misspell settings
+  misspell:
+    # Correct spellings using locale preferences for US or UK
+    locale: US
+
+  # Lll settings
+  lll:
+    # Max line length, lines longer will be reported
+    line-length: 120
+
+  # Unused settings
+  unused:
+    # Select the Go version to target
+    go: "1.21"
+
+  # Unparam settings
+  unparam:
+    # Inspect exported functions
+    check-exported: false
+
+  # Nakedret settings
+  nakedret:
+    # Make an issue if func has more lines of code than this setting
+    max-func-lines: 30
+
+  # Prealloc settings
+  prealloc:
+    # Report preallocation suggestions only on simple loops that have no returns/breaks/continues/gotos in them
+    simple: true
+    range-loops: true
+    for-loops: false
+
+  # Gocritic settings
+  gocritic:
+    # Which checks should be enabled
+    enabled-checks:
+      - appendAssign
+      - argOrder
+      - assignOp
+      - badCond
+      - boolExprSimplify
+      - builtinShadow
+      - captLocal
+      - caseOrder
+      - codegenComment
+      - commentedOutCode
+      - commentedOutImport
+      - defaultCaseOrder
+      - deprecatedComment
+      - docStub
+      - dupArg
+      - dupBranchBody
+      - dupCase
+      - dupSubExpr
+      - elseif
+      - emptyFallthrough
+      - equalFold
+      - flagDeref
+      - flagName
+      - hexLiteral
+      - indexAlloc
+      - initClause
+      - methodExprCall
+      - nilValReturn
+      - octalLiteral
+      - offBy1
+      - rangeExprCopy
+      - regexpMust
+      - sloppyLen
+      - stringXbytes
+      - switchTrue
+      - typeAssertChain
+      - typeSwitchVar
+      - typeUnparen
+      - underef
+      - unlambda
+      - unnecessaryBlock
+      - unslice
+      - valSwap
+      - wrapperFunc
+      - yodaStyleExpr
+
+    # Which checks should be disabled
+    disabled-checks:
+      - regexpMust
+
+    # Enable multiple checks by tags
+    enabled-tags:
+      - performance
+
+    settings:
+      # Settings for `captLocal` checker
+      captLocal:
+        # Whether to restrict checker to params only
+        paramsOnly: true
+      
+      # Settings for `elseif` checker
+      elseif:
+        # Whether to skip balanced if-else pairs
+        skipBalanced: true
+      
+      # Settings for `hugeParam` checker
+      hugeParam:
+        # Size in bytes that makes the warning trigger
+        sizeThreshold: 80
+      
+      # Settings for `rangeExprCopy` checker
+      rangeExprCopy:
+        # Size in bytes that makes the warning trigger
+        sizeThreshold: 512
+        skipTestFuncs: true
+      
+      # Settings for `rangeValCopy` checker
+      rangeValCopy:
+        # Size in bytes that makes the warning trigger
+        sizeThreshold: 128
+        skipTestFuncs: true
+      
+      # Settings for `underef` checker
+      underef:
+        # Whether to skip (*x).method() calls where x is a pointer receiver
+        skipRecvDeref: true
+
+# Linters configuration
+linters:
+  # Disable all linters as default is true
+  disable-all: false
+  
+  # Enable specific linter
+  enable:
+    - bodyclose
+    - deadcode
+    - depguard
+    - dogsled
+    - dupl
+    - errcheck
+    - exportloopref
+    - exhaustive
+    - funlen
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - gofmt
+    - goimports
+    - gomnd
+    - goprintffuncname
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - interfacer
+    - lll
+    - misspell
+    - nakedret
+    - noctx
+    - nolintlint
+    - rowserrcheck
+    - scopelint
+    - staticcheck
+    - structcheck
+    - stylecheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - varcheck
+    - whitespace
+
+  # Disable specific linter
+  disable:
+    - maligned
+    - prealloc
+
+  # Enable only fast linters from enabled linters set (first run won't be fast)
+  fast: false
+
+# Issues configuration
+issues:
+  # List of regexps of issue texts to exclude
+  exclude:
+    # Exclude some linters from running on tests files
+    - "Error return value of .((os\\.)?std(out|err)\\..*|.*Close|.*Flush|os\\.Remove(All)?|.*printf?|os\\.(Un)?Setenv). is not checked"
+    - "exported function .* should have comment or be unexported"
+    - "should have a package comment, unless it's in another file for this package"
+
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gomnd
+        - funlen
+        - goconst
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+
+    # Exclude known linters from partially hard-to-fix issues
+    - linters:
+        - typecheck
+      text: "declared but not used"
+
+    - linters:
+        - lll
+      source: "^//go:generate "
+
+  # Independently from option `exclude` we use default exclude patterns,
+  # it can be disabled by this option. To list all
+  # excluded by default patterns execute `golangci-lint run --help`.
+  exclude-use-default: false
+
+  # Maximum issues count per one linter. Set to 0 to disable
+  max-issues-per-linter: 0
+
+  # Maximum count of issues with the same text. Set to 0 to disable
+  max-same-issues: 0
+
+  # Show only new issues: if there are unstaged changes or untracked files,
+  # only those changes are analyzed, e.g. `--new` or `--new-from-rev=HEAD~1`
+  new: false
+
+  # Show only new issues created after git revision `REV`
+  new-from-rev: ""
+
+  # Show only new issues created in git patch with set file path
+  new-from-patch: ""
+
+  # Fix found issues (if it's supported by the linter)
+  fix: false

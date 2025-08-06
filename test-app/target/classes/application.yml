@@ -1,0 +1,24 @@
+server:
+  port: 8888
+  servlet:
+    context-path: /test-app
+
+spring:
+  application:
+    name: test-app
+
+# 启用健康检查端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.test: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

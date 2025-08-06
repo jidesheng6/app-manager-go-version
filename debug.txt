@@ -1,0 +1,273 @@
+root@localhost test-go]# ls
+app-manager-linux-amd64  derby.log  logs  project_backend  project_backup  project_cache  project_frontend  project_update  work
+[root@localhost test-go]# ./app-manager-linux-amd64 status
+
+ℹ [2025-08-06 09:39:43] 🔍 正在检测Linux系统上的Java进程...
+ℹ [2025-08-06 09:39:43] 📋 命令输出长度: 10328 字符
+ℹ [2025-08-06 09:39:43] 📋 解析到 219 行输出
+ℹ [2025-08-06 09:39:43] 📋 处理第 216 行: 2211       1 /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:39:43] 📋 PID字符串: 2211
+ℹ [2025-08-06 09:39:43] 📋 命令行: /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:39:43] 📋 提取的JAR路径: /opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:39:43] ✅ 添加Java进程: PID=2211, JAR=/opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:39:43] 🎯 总共发现 1 个Java进程
+═══════════════════════════════════════════════════════════
+                    应用状态概览
+═══════════════════════════════════════════════════════════
+
+ℹ [2025-08-06 09:39:44] 性能调试信息:
+  开始更新 12 个应用的状态...ℹ [2025-08-06 09:39:44] 🔍 正在检测Linux系统上的Java进程...
+ℹ [2025-08-06 09:39:44] 📋 命令输出长度: 10325 字符
+ℹ [2025-08-06 09:39:44] 📋 解析到 219 行输出
+ℹ [2025-08-06 09:39:44] 📋 处理第 216 行: 2211       1 /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:39:44] 📋 PID字符串: 2211
+ℹ [2025-08-06 09:39:44] 📋 命令行: /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:39:44] 📋 提取的JAR路径: /opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:39:44] ✅ 添加Java进程: PID=2211, JAR=/opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:39:44] 🎯 总共发现 1 个Java进程
+  所有应用状态更新完成，总耗时: 7.758108ms
++------+-----------------------------------+----------------+-----+----------+------+------+----------+------+------+
+| 序号 | 应用名称                          | 状态           | PID | 运行时长 | CPU  | 内存 | 内存大小 | 端口 | 日志 |
++------+-----------------------------------+----------------+-----+----------+------+------+----------+------+------+
+| 1    | party-auth                        | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 2    | party-common-file                 | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 3    | party-common-job                  | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 4    | party-common-jobhandler           | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 5    | party-common-leaf                 | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 6    | party-common-sms                  | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 7    | party-education-backend           | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 8    | party-gateway                     | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 9    | party-manage-backend              | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 10   | party-meeting-backend             | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 11   | party-people-organization-backend | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| 12   | test-app                          | 已停止         | -   | --       | 0%   | 0%   | 0MB      | --   | ✓    |
+| -    | 合计 (12个应用)                   | 运行:0 停止:12 | -   | -        | 0.0% | 0.0% | 0MB      | -    | -    |
++------+-----------------------------------+----------------+-----+----------+------+------+----------+------+------+
+
+ℹ [2025-08-06 09:39:44] 状态统计:
+  总计: 12 个应用
+  运行中: 0 个
+  已停止: 12 个
+
+ℹ [2025-08-06 09:39:44] 系统内存:
+  物理内存: 1.1GB / 3.8GB (已用 30.0%)  交换内存: 0MB / 4.0GB (已用 0.0%)
+ℹ [2025-08-06 09:39:44] 系统信息:
+  主机名: localhost.localdomain
+  IP地址: 192.168.60.134, 192.168.122.1
+  项目目录: /opt/test-go
+  Nacos地址: 192.168.60.134:8848
+  Nacos命名空间: test-go
+  JVM参数: -Djava.security.egd=file:/dev/./urandom
+
+
+ℹ [2025-08-06 09:39:44] 交互模式命令:
+  s<序号> - 启动应用 (例: s1)     r<序号> - 重启应用 (例: r1)
+  k<序号> - 停止应用 (例: k1)     9999   - 对所有应用执行操作
+  回车     - 刷新应用列表         q      - 退出交互模式
+请输入命令: q
+
+ℹ [2025-08-06 09:40:01] 退出交互模式
+[root@localhost test-go]# 
+
+
+
+[root@localhost test-go]# ./app-manager-linux-amd64 status
+
+ℹ [2025-08-06 09:44:01] 🔍 正在检测Linux系统上的Java进程...
+ℹ [2025-08-06 09:44:18] 📋 命令输出长度: 11312 字符
+ℹ [2025-08-06 09:44:18] 📋 解析到 222 行输出
+ℹ [2025-08-06 09:44:18] 📋 处理第 205 行: 2211       1 /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2211
+ℹ [2025-08-06 09:44:18] 📋 命令行: /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2211, JAR=/opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 206 行: 2593       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2593
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2593, JAR=/opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 207 行: 2594       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2594
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2594, JAR=/opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 208 行: 2595       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2595
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2595, JAR=/opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 209 行: 2596       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2596
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2596, JAR=/opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 210 行: 2597       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2597
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2597, JAR=/opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 211 行: 2598       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2598
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2598, JAR=/opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 212 行: 2599       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2599
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2599, JAR=/opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 213 行: 2600       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2600
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2600, JAR=/opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 214 行: 2601       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2601
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2601, JAR=/opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 215 行: 2602       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2602
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2602, JAR=/opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 216 行: 2612       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2612
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2612, JAR=/opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:18] 📋 处理第 217 行: 2613       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:18] 📋 PID字符串: 2613
+ℹ [2025-08-06 09:44:18] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:18] 📋 提取的JAR路径: /opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:18] ✅ 添加Java进程: PID=2613, JAR=/opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:18] 🎯 总共发现 13 个Java进程
+ℹ [2025-08-06 09:44:18] 设置应用 party-auth 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:18] 设置应用 party-common-file 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:18] 设置应用 party-common-job 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:19] 设置应用 party-common-jobhandler 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:22] 设置应用 party-common-leaf 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:23] 设置应用 party-common-sms 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:24] 设置应用 party-education-backend 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:24] 设置应用 party-gateway 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:24] 设置应用 party-manage-backend 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:24] 设置应用 party-meeting-backend 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:24] 设置应用 party-people-organization-backend 的启动时间: 2025-08-06 09:42:57
+ℹ [2025-08-06 09:44:25] 设置应用 test-app 的启动时间: 2025-08-06 09:42:57
+═══════════════════════════════════════════════════════════
+                    应用状态概览
+═══════════════════════════════════════════════════════════
+
+ℹ [2025-08-06 09:44:25] 性能调试信息:
+  开始更新 12 个应用的状态...ℹ [2025-08-06 09:44:25] 🔍 正在检测Linux系统上的Java进程...
+ℹ [2025-08-06 09:44:26] 📋 命令输出长度: 11289 字符
+ℹ [2025-08-06 09:44:26] 📋 解析到 221 行输出
+ℹ [2025-08-06 09:44:26] 📋 处理第 204 行: 2211       1 /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2211
+ℹ [2025-08-06 09:44:26] 📋 命令行: /usr/lib/jvm/ibm-semeru-open-8-jdk/bin/java -Djava.ext.dirs=/usr/lib/jvm/ibm-semeru-open-8-jdk/jre/lib/ext:/usr/lib/jvm/ibm-semeru-open-8-jdk/lib/ext -Xms512m -Xmx512m -Xmn256m -Dnacos.standalone=true -Dnacos.member.list= -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSInitiatingOccupancyFraction=70 -XX:+CMSParallelRemarkEnabled -XX:SoftRefLRUPolicyMSPerMB=0 -XX:+CMSClassUnloadingEnabled -XX:SurvivorRatio=8 -Xloggc:/opt/nacos/logs/nacos_gc.log -verbose:gc -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UseGCLogFileRotation -XX:NumberOfGCLogFiles=10 -XX:GCLogFileSize=100M -Dloader.path=/opt/nacos/plugins,/opt/nacos/plugins/health,/opt/nacos/plugins/cmdb,/opt/nacos/plugins/selector -Dnacos.home=/opt/nacos -jar /opt/nacos/target/nacos-server.jar --spring.config.additional-location=file:/opt/nacos/conf/ --logging.config=/opt/nacos/conf/nacos-logback.xml --server.max-http-header-size=524288 nacos.nacos
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2211, JAR=/opt/nacos/target/nacos-server.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 205 行: 2593       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2593
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2593, JAR=/opt/test-go/project_backend/party-auth.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 206 行: 2594       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2594
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2594, JAR=/opt/test-go/project_backend/party-common-file.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 207 行: 2595       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2595
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2595, JAR=/opt/test-go/project_backend/party-common-job.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 208 行: 2596       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2596
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2596, JAR=/opt/test-go/project_backend/party-common-jobhandler.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 209 行: 2597       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2597
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2597, JAR=/opt/test-go/project_backend/party-common-leaf.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 210 行: 2598       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2598
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2598, JAR=/opt/test-go/project_backend/party-common-sms.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 211 行: 2599       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2599
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2599, JAR=/opt/test-go/project_backend/party-education-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 212 行: 2600       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2600
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2600, JAR=/opt/test-go/project_backend/party-gateway.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 213 行: 2601       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2601
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2601, JAR=/opt/test-go/project_backend/party-manage-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 214 行: 2602       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2602
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2602, JAR=/opt/test-go/project_backend/party-meeting-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 215 行: 2612       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2612
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2612, JAR=/opt/test-go/project_backend/party-people-organization-backend.jar
+ℹ [2025-08-06 09:44:26] 📋 处理第 216 行: 2613       1 java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:26] 📋 PID字符串: 2613
+ℹ [2025-08-06 09:44:26] 📋 命令行: java -Djava.security.egd=file:/dev/./urandom -jar /opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:26] 📋 提取的JAR路径: /opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:26] ✅ 添加Java进程: PID=2613, JAR=/opt/test-go/project_backend/test-app.jar
+ℹ [2025-08-06 09:44:26] 🎯 总共发现 13 个Java进程
+  所有应用状态更新完成，总耗时: 18.922411462s
++------+-----------------------------------+----------------+------+----------+--------+-------+----------+------+------+
+| 序号 | 应用名称                          | 状态           | PID  | 运行时长 | CPU    | 内存  | 内存大小 | 端口 | 日志 |
++------+-----------------------------------+----------------+------+----------+--------+-------+----------+------+------+
+| 1    | party-auth                        | 运行中         | 2593 | --       | 8.8%   | 7.1%  | 282MB    | --   | ✓    |
+| 2    | party-common-file                 | 运行中         | 2594 | --       | 9.2%   | 8.9%  | 354MB    | --   | ✓    |
+| 3    | party-common-job                  | 运行中         | 2595 | --       | 9.6%   | 7.5%  | 291MB    | --   | ✓    |
+| 4    | party-common-jobhandler           | 运行中         | 2596 | --       | 7.8%   | 5.0%  | 200MB    | --   | ✓    |
+| 5    | party-common-leaf                 | 运行中         | 2597 | --       | 9.3%   | 4.8%  | 190MB    | --   | ✓    |
+| 6    | party-common-sms                  | 运行中         | 2598 | --       | 10.1%  | 6.6%  | 262MB    | --   | ✓    |
+| 7    | party-education-backend           | 运行中         | 2599 | --       | 8.2%   | 6.8%  | 267MB    | --   | ✓    |
+| 8    | party-gateway                     | 运行中         | 2600 | --       | 9.4%   | 6.8%  | 271MB    | --   | ✓    |
+| 9    | party-manage-backend              | 运行中         | 2601 | --       | 9.0%   | 7.9%  | 311MB    | --   | ✓    |
+| 10   | party-meeting-backend             | 运行中         | 2602 | --       | 8.3%   | 7.5%  | 293MB    | --   | ✓    |
+| 11   | party-people-organization-backend | 运行中         | 2612 | --       | 9.8%   | 6.4%  | 257MB    | --   | ✓    |
+| 12   | test-app                          | 运行中         | 2613 | --       | 9.5%   | 3.2%  | 127MB    | --   | ✓    |
+| -    | 合计 (12个应用)                   | 运行:12 停止:0 | -    | -        | 109.0% | 78.5% | 3105MB   | -    | -    |
++------+-----------------------------------+----------------+------+----------+--------+-------+----------+------+------+
+
+ℹ [2025-08-06 09:44:44] 状态统计:
+  总计: 12 个应用
+  运行中: 12 个
+  已停止: 0 个
+
+ℹ [2025-08-06 09:44:44] 系统内存:
+  物理内存: 3.6GB / 3.8GB (已用 94.3%)  交换内存: 2.0GB / 4.0GB (已用 50.5%)
+ℹ [2025-08-06 09:44:44] 系统信息:
+  主机名: localhost.localdomain
+  IP地址: 192.168.60.134, 192.168.122.1
+  项目目录: /opt/test-go
+  Nacos地址: 192.168.60.134:8848
+  Nacos命名空间: test-go
+  JVM参数: -Djava.security.egd=file:/dev/./urandom
+
+
+ℹ [2025-08-06 09:44:44] 交互模式命令:
+  s<序号> - 启动应用 (例: s1)     r<序号> - 重启应用 (例: r1)
+  k<序号> - 停止应用 (例: k1)     9999   - 对所有应用执行操作
+  回车     - 刷新应用列表         q      - 退出交互模式
+请输入命令: q
+
+ℹ [2025-08-06 09:45:46] 退出交互模式
+[root@localhost test-go]# 
