@@ -113,6 +113,73 @@ func showSingleApplicationStatus(appService *services.ApplicationService, appNam
 	return nil
 }
 
+// executeOperationOnAllAppsOptimized 对所有应用执行操作（优化版本）
+func executeOperationOnAllAppsOptimized(appService *services.ApplicationService, apps models.ApplicationList, operation string) error {
+	// 在执行操作前，强制更新所有应用的状态
+	logger.Info("正在更新应用状态...")
+	for _, app := range apps {
+		app.UpdateStatus()
+	}
+	
+	switch operation {
+	case "s":
+		logger.Info("启动所有已停止的应用")
+		stoppedApps := apps.Stopped()
+		if len(stoppedApps) == 0 {
+			logger.Info("没有已停止的应用")
+			return nil
+		}
+		
+		successCount := 0
+		for _, app := range stoppedApps {
+			logger.Info("启动应用: %s", app.Name)
+			if err := appService.StartApplication(app); err != nil {
+				logger.Error("启动应用失败 %s: %v", app.Name, err)
+			} else {
+				successCount++
+			}
+		}
+		logger.Info("启动完成: 成功 %d 个，失败 %d 个", successCount, len(stoppedApps)-successCount)
+		
+	case "r":
+		logger.Info("重启所有应用")
+		successCount := 0
+		for _, app := range apps {
+			logger.Info("重启应用: %s", app.Name)
+			if err := appService.RestartApplication(app); err != nil {
+				logger.Error("重启应用失败 %s: %v", app.Name, err)
+			} else {
+				successCount++
+			}
+		}
+		logger.Info("重启完成: 成功 %d 个，失败 %d 个", successCount, len(apps)-successCount)
+		
+	case "k":
+		logger.Info("停止所有运行中的应用")
+		runningApps := apps.Running()
+		if len(runningApps) == 0 {
+			logger.Info("没有运行中的应用")
+			return nil
+		}
+		
+		successCount := 0
+		for _, app := range runningApps {
+			logger.Info("停止应用: %s", app.Name)
+			if err := appService.StopApplication(app); err != nil {
+				logger.Error("停止应用失败 %s: %v", app.Name, err)
+			} else {
+				successCount++
+			}
+		}
+		logger.Info("停止完成: 成功 %d 个，失败 %d 个", successCount, len(runningApps)-successCount)
+		
+	default:
+		return fmt.Errorf("未知操作: %s", operation)
+	}
+	
+	return nil
+}
+
 // showAllApplicationsStatus 显示所有应用状态
 func showAllApplicationsStatus(appService *services.ApplicationService) error {
 	// 发现应用
@@ -224,7 +291,7 @@ func showDetailedStatus(status *models.ApplicationStatus) {
 func showTableStatus(appService *services.ApplicationService, apps models.ApplicationList) {
 	// 更新所有应用的状态
 	for _, app := range apps {
-		appService.GetApplicationStatus(app)
+		app.UpdateStatus()
 	}
 	
 	table := tablewriter.NewWriter(os.Stdout)
@@ -258,10 +325,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	for i, app := range apps {
 		status := appService.GetApplicationStatus(app)
 		
-		// 统计状态
-		if status.Status == models.StatusRunning {
+		// 统计状态 - 使用应用的实际运行状态
+		if app.IsRunning() {
 			runningCount++
-		} else if status.Status == models.StatusStopped {
+		} else {
 			stoppedCount++
 		}
 		
@@ -366,6 +433,11 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 
 // showStatusSummary 显示状态统计
 func showStatusSummary(apps models.ApplicationList) {
+	// 在统计前更新所有应用状态
+	for _, app := range apps {
+		app.UpdateStatus()
+	}
+	
 	runningCount := len(apps.Running())
 	stoppedCount := len(apps.Stopped())
 	totalCount := len(apps)
@@ -568,12 +640,24 @@ func getTableStatusColor(status models.AppStatus) tablewriter.Colors {
 
 // showAllApplicationsStatusWithInteractive 显示所有应用状态并进入交互模式
 func showAllApplicationsStatusWithInteractive(appService *services.ApplicationService) error {
+	// 缓存应用列表，避免重复发现
+	var cachedApps models.ApplicationList
+	var err error
+	
 	for {
 		// 清屏
 		fmt.Print("\033[2J\033[H")
 		
-		// 显示应用状态
-		if err := showAllApplicationsStatus(appService); err != nil {
+		// 只在第一次或用户明确刷新时重新发现应用
+		if cachedApps == nil {
+			cachedApps, err = appService.DiscoverApplications()
+			if err != nil {
+				return fmt.Errorf("发现应用失败: %w", err)
+			}
+		}
+		
+		// 显示应用状态（使用缓存的应用列表）
+		if err := showAllApplicationsStatusCached(appService, cachedApps); err != nil {
 			return err
 		}
 		
@@ -581,10 +665,48 @@ func showAllApplicationsStatusWithInteractive(appService *services.ApplicationSe
 		showInteractiveHelp()
 		
 		// 等待用户输入
-		if shouldExit := handleInteractiveInput(appService); shouldExit {
+		shouldExit, shouldRefresh := handleInteractiveInputOptimized(appService, cachedApps)
+		if shouldExit {
 			break
 		}
+		if shouldRefresh {
+			cachedApps = nil // 清空缓存，下次循环重新发现
+		}
 	}
+	
+	return nil
+}
+
+// showAllApplicationsStatusCached 显示所有应用状态（使用缓存的应用列表）
+func showAllApplicationsStatusCached(appService *services.ApplicationService, apps models.ApplicationList) error {
+	if len(apps) == 0 {
+		logger.Info("没有找到任何应用")
+		return nil
+	}
+	
+	logger.Title("应用状态概览")
+	
+	if statusDetail {
+		// 显示详细状态
+		for i, app := range apps {
+			if i > 0 {
+				logger.Println("")
+			}
+			
+			status := appService.GetApplicationStatus(app)
+			
+			showDetailedStatus(status)
+		}
+	} else {
+		// 显示表格状态
+		showTableStatus(appService, apps)
+	}
+	
+	// 显示统计信息
+	showStatusSummary(apps)
+	
+	// 显示系统信息
+	showSystemInfo()
 	
 	return nil
 }
@@ -595,8 +717,9 @@ func showInteractiveHelp() {
 	logger.Info("交互模式命令:")
 	
 	// 分成两列显示，减少高度
-	fmt.Printf("  \033[33ms<序号>\033[0m - 启动应用 (例: s1)     \033[33mr<序号>\033[0m - 重启应用 (例: r1)\n")
-	fmt.Printf("  \033[33mk<序号>\033[0m - 停止应用 (例: k1)     \033[33m9999\033[0m   - 对所有应用执行操作\n")
+	fmt.Printf("  \033[33ms<序号>\033[0m - 启动应用 (例: s1)       \033[33mr<序号>\033[0m - 重启应用 (例: r1)\n")
+	fmt.Printf("  \033[33mk<序号>\033[0m - 停止应用 (例: k1)       \033[33m9999\033[0m   - 对所有应用执行操作\n")
+	fmt.Printf("  \033[33m批量操作\033[0m - 支持逗号和范围 (例: s1,2,3 或 k1-5)\n")
 	fmt.Printf("  \033[33m回车\033[0m     - 刷新应用列表         \033[33mq\033[0m      - 退出交互模式\n")
 	
 	logger.Printf("请输入命令: ")
@@ -644,15 +767,24 @@ func handleInteractiveInput(appService *services.ApplicationService) bool {
 		return false
 	}
 	
-	number, err := strconv.Atoi(numberStr)
-	if err != nil {
-		logger.Error("无效的序号: %s", numberStr)
-		return false
-	}
-	
-	// 执行操作
-	if err := executeInteractiveOperation(appService, operation, number); err != nil {
-		logger.Error("操作失败: %v", err)
+	// 检查是否是批量操作（包含逗号或连字符）
+	if strings.Contains(numberStr, ",") || strings.Contains(numberStr, "-") {
+		// 批量操作
+		if err := executeBatchInteractiveOperation(appService, operation, numberStr); err != nil {
+			logger.Error("批量操作失败: %v", err)
+		}
+	} else {
+		// 单个操作
+		number, err := strconv.Atoi(numberStr)
+		if err != nil {
+			logger.Error("无效的序号: %s", numberStr)
+			return false
+		}
+		
+		// 执行操作
+		if err := executeInteractiveOperation(appService, operation, number); err != nil {
+			logger.Error("操作失败: %v", err)
+		}
 	}
 	
 	// 等待用户按键继续
@@ -660,6 +792,118 @@ func handleInteractiveInput(appService *services.ApplicationService) bool {
 	reader.ReadString('\n')
 	
 	return false
+}
+
+// handleInteractiveInputOptimized 处理交互输入（优化版本）
+func handleInteractiveInputOptimized(appService *services.ApplicationService, apps models.ApplicationList) (shouldExit bool, shouldRefresh bool) {
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		logger.Error("读取输入失败: %v", err)
+		return false, false
+	}
+	
+	input = strings.TrimSpace(input)
+	
+	// 空输入，刷新列表
+	if input == "" {
+		return false, false
+	}
+	
+	// 退出命令
+	if input == "q" || input == "Q" {
+		fmt.Print("\033[2J\033[H") // 清屏
+		logger.Info("退出交互模式")
+		return true, false
+	}
+	
+	// 刷新命令
+	if input == "refresh" || input == "r" {
+		return false, true
+	}
+	
+	// 解析命令
+	if len(input) < 1 {
+		logger.Error("无效命令")
+		return false, false
+	}
+	
+	operation := strings.ToLower(string(input[0]))
+	if operation != "s" && operation != "r" && operation != "k" {
+		logger.Error("无效操作，请使用 s(启动)/r(重启)/k(停止)")
+		return false, false
+	}
+	
+	// 解析序号
+	numberStr := strings.TrimSpace(input[1:])
+	if numberStr == "" {
+		logger.Error("请指定应用序号")
+		return false, false
+	}
+	
+	// 检查是否是批量操作（包含逗号或连字符）
+	if strings.Contains(numberStr, ",") || strings.Contains(numberStr, "-") {
+		// 批量操作
+		if err := executeBatchInteractiveOperationOptimized(appService, operation, numberStr, apps); err != nil {
+			logger.Error("批量操作失败: %v", err)
+		}
+	} else {
+		// 单个操作
+		number, err := strconv.Atoi(numberStr)
+		if err != nil {
+			logger.Error("无效的序号: %s", numberStr)
+			return false, false
+		}
+		
+		// 执行操作
+		if err := executeInteractiveOperationOptimized(appService, operation, number, apps); err != nil {
+			logger.Error("操作失败: %v", err)
+		}
+	}
+	
+	// 等待用户按键继续
+	logger.Printf("\n按回车键继续...")
+	reader.ReadString('\n')
+	
+	return false, false
+}
+
+// executeBatchInteractiveOperation 执行批量交互操作
+func executeBatchInteractiveOperation(appService *services.ApplicationService, operation string, numberStr string) error {
+	// 发现应用
+	apps, err := appService.DiscoverApplications()
+	if err != nil {
+		return fmt.Errorf("发现应用失败: %w", err)
+	}
+	
+	if len(apps) == 0 {
+		return fmt.Errorf("没有找到任何应用")
+	}
+	
+	// 解析批量序号
+	numbers, err := services.ParseBatchNumbers(numberStr)
+	if err != nil {
+		return fmt.Errorf("解析序号失败: %w", err)
+	}
+	
+	// 执行批量操作
+	return appService.ExecuteBatchOperation(operation, numbers, apps)
+}
+
+// executeBatchInteractiveOperationOptimized 执行批量交互操作（优化版本）
+func executeBatchInteractiveOperationOptimized(appService *services.ApplicationService, operation string, numberStr string, apps models.ApplicationList) error {
+	if len(apps) == 0 {
+		return fmt.Errorf("没有找到任何应用")
+	}
+	
+	// 解析批量序号
+	numbers, err := services.ParseBatchNumbers(numberStr)
+	if err != nil {
+		return fmt.Errorf("解析序号失败: %w", err)
+	}
+	
+	// 执行批量操作
+	return appService.ExecuteBatchOperation(operation, numbers, apps)
 }
 
 // executeInteractiveOperation 执行交互操作
@@ -703,8 +947,49 @@ func executeInteractiveOperation(appService *services.ApplicationService, operat
 	}
 }
 
+// executeInteractiveOperationOptimized 执行交互操作（优化版本）
+func executeInteractiveOperationOptimized(appService *services.ApplicationService, operation string, number int, apps models.ApplicationList) error {
+	if len(apps) == 0 {
+		return fmt.Errorf("没有找到任何应用")
+	}
+	
+	// 处理所有应用的情况
+	if number == 9999 {
+		return executeOperationOnAllAppsOptimized(appService, apps, operation)
+	}
+	
+	// 检查序号范围
+	if number < 1 || number > len(apps) {
+		return fmt.Errorf("序号超出范围，应用数量: %d", len(apps))
+	}
+	
+	// 获取指定应用
+	app := apps[number-1]
+	
+	// 执行操作
+	switch operation {
+	case "s":
+		logger.Info("启动应用: %s", app.Name)
+		return appService.StartApplication(app)
+	case "r":
+		logger.Info("重启应用: %s", app.Name)
+		return appService.RestartApplication(app)
+	case "k":
+		logger.Info("停止应用: %s", app.Name)
+		return appService.StopApplication(app)
+	default:
+		return fmt.Errorf("未知操作: %s", operation)
+	}
+}
+
 // executeOperationOnAllApps 对所有应用执行操作
 func executeOperationOnAllApps(appService *services.ApplicationService, apps models.ApplicationList, operation string) error {
+	// 在执行操作前，强制更新所有应用的状态
+	logger.Info("正在更新应用状态...")
+	for _, app := range apps {
+		app.UpdateStatus()
+	}
+	
 	switch operation {
 	case "s":
 		logger.Info("启动所有已停止的应用")

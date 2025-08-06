@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -121,14 +122,39 @@ func (app *Application) IsRunning() bool {
 		outputStr := strings.TrimSpace(string(output))
 		return outputStr != "" && !strings.Contains(outputStr, "INFO: No tasks are running")
 	} else {
-		// Unix系统使用信号检查
+		// Unix系统使用多种方法检查进程是否存在
+		
+		// 方法1: 检查/proc/PID目录是否存在
+		procDir := fmt.Sprintf("/proc/%d", app.PID)
+		if _, err := os.Stat(procDir); err == nil {
+			// 进一步验证这是一个Java进程
+			cmdlineFile := fmt.Sprintf("/proc/%d/cmdline", app.PID)
+			if cmdlineData, err := os.ReadFile(cmdlineFile); err == nil {
+				cmdline := string(cmdlineData)
+				if strings.Contains(cmdline, "java") && strings.Contains(cmdline, ".jar") {
+					return true
+				}
+			}
+		}
+		
+		// 方法2: 使用ps命令验证
+		cmd := exec.Command("ps", "-p", strconv.Itoa(app.PID), "-o", "pid", "--no-headers")
+		output, err := cmd.Output()
+		if err == nil {
+			outputStr := strings.TrimSpace(string(output))
+			if outputStr != "" {
+				return true
+			}
+		}
+		
+		// 方法3: 使用信号检查（作为最后的备选）
 		process, err := os.FindProcess(app.PID)
 		if err != nil {
 			return false
 		}
 		
 		// 发送信号0来检查进程是否存在
-		err = process.Signal(os.Signal(nil))
+		err = process.Signal(syscall.Signal(0))
 		return err == nil
 	}
 }
@@ -432,20 +458,18 @@ func (app *Application) getPortFromLog() string {
 	defer file.Close()
 	
 	scanner := bufio.NewScanner(file)
+	
+	// 简化的端口匹配模式
+	portPattern := regexp.MustCompile(`(?i)(?:started|listening|listen|bind).*?port[s]?\s*[:\(]?\s*(\d+)`)
+	
 	for scanner.Scan() {
 		line := scanner.Text()
-		// 查找常见的端口启动日志
-		if strings.Contains(line, "Tomcat started on port") ||
-			strings.Contains(line, "Jetty started on port") ||
-			strings.Contains(line, "Undertow started on port") ||
-			strings.Contains(line, "Netty started on port") ||
-			strings.Contains(line, "started on port") {
-			
-			// 使用正则表达式提取端口号
-			re := regexp.MustCompile(`port[s]?\s*[:\(]?\s*(\d+)`)
-			matches := re.FindStringSubmatch(line)
-			if len(matches) > 1 {
-				return matches[1]
+		matches := portPattern.FindStringSubmatch(line)
+		if len(matches) > 1 {
+			port := matches[1]
+			// 验证是否为有效端口号
+			if portNum, err := strconv.Atoi(port); err == nil && portNum > 0 && portNum < 65536 {
+				return port
 			}
 		}
 	}
@@ -521,6 +545,14 @@ func (app *Application) getPortFromNetstatLinux() string {
 	
 	return ""
 }
+
+
+
+
+
+
+
+
 
 // ApplicationList 应用列表类型
 type ApplicationList []*Application
