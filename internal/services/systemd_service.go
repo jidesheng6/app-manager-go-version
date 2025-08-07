@@ -343,12 +343,14 @@ func (s *SystemdService) generateServiceConfig(appName, appPath string) *Service
 
 // writeServiceFile 写入服务文件
 func (s *SystemdService) writeServiceFile(servicePath string, config *ServiceConfig) error {
+	logger.Info("[调试] 正在解析服务模板...")
 	// 解析模板
 	tmpl, err := template.New("service").Parse(ServiceTemplate)
 	if err != nil {
 		return fmt.Errorf("解析服务模板失败: %w", err)
 	}
 	
+	logger.Info("[调试] 正在创建服务文件: %s...", servicePath)
 	// 创建服务文件
 	file, err := os.Create(servicePath)
 	if err != nil {
@@ -356,11 +358,13 @@ func (s *SystemdService) writeServiceFile(servicePath string, config *ServiceCon
 	}
 	defer file.Close()
 	
+	logger.Info("[调试] 正在将配置写入服务文件...")
 	// 执行模板
 	if err := tmpl.Execute(file, config); err != nil {
 		return fmt.Errorf("生成服务文件失败: %w", err)
 	}
 	
+	logger.Info("[调试] 正在设置文件权限为 0644...")
 	// 设置文件权限
 	if err := os.Chmod(servicePath, 0644); err != nil {
 		return fmt.Errorf("设置服务文件权限失败: %w", err)
@@ -371,6 +375,7 @@ func (s *SystemdService) writeServiceFile(servicePath string, config *ServiceCon
 
 // reloadSystemd 重新加载systemd配置
 func (s *SystemdService) reloadSystemd() error {
+	logger.Info("[调试] 正在执行 'systemctl daemon-reload'...")
 	cmd := exec.Command("systemctl", "daemon-reload")
 	return cmd.Run()
 }

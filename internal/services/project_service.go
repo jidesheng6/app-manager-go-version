@@ -859,7 +859,11 @@ func (s *ProjectService) UpdatePrepare() error {
 	
 	// 创建更新前备份
 	backupService := NewBackupService()
-	backupName := fmt.Sprintf("update_backup_%s", time.Now().Format("20060102_150405"))
+	backupPrefix := s.config.Backup.BackupPrefix
+	if backupPrefix == "" {
+		backupPrefix = "update_backup" // 如果未配置，则使用默认值
+	}
+	backupName := fmt.Sprintf("%s_%s", backupPrefix, time.Now().Format("20060102_150405"))
 	
 	logger.Info("创建更新前备份...")
 	if err := backupService.BackupProject(backupName, "更新前自动备份"); err != nil {

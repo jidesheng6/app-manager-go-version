@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -172,11 +171,11 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 
 // StopApplication 停止应用
 func (s *ApplicationService) StopApplication(app *models.Application) error {
-	logger.Info("正在准备停止应用: %s", app.Name)
+	logger.Info("正在准备强制停止应用: %s", app.Name)
 
 	// 1. 合并来自PID文件和系统进程列表的PID
 	pidsToStop := make(map[int]bool)
-	if app.PID > 0 {
+	if app.PID > 0 && app.IsRunning() {
 		pidsToStop[app.PID] = true
 	}
 
@@ -190,45 +189,28 @@ func (s *ApplicationService) StopApplication(app *models.Application) error {
 
 	if len(pidsToStop) == 0 {
 		logger.Info("应用 %s 未发现正在运行的进程。", app.Name)
-		// 确保PID文件也被清理
-		app.RemovePID()
+		app.RemovePID() // 确保清理无效的PID文件
 		app.Status = models.StatusStopped
 		return nil
 	}
 
-	// 2. 尝试优雅停止
-	logger.Info("尝试优雅停止以下进程: %v", pidsToStop)
+	// 2. 强制停止所有找到的进程
+	logger.Info("将强制终止以下进程: %v", pidsToStop)
 	for pid := range pidsToStop {
 		process, err := os.FindProcess(pid)
 		if err != nil {
-			continue // 进程可能已经消失
+			logger.Warning("查找进程 PID %d 失败: %v", pid, err)
+			continue
 		}
-		// 发送SIGTERM信号
-		process.Signal(syscall.SIGTERM)
-	}
-
-	// 3. 等待并验证
-	time.Sleep(3 * time.Second) // 等待3秒让进程响应
-
-	// 4. 强制停止仍然存在的进程
-	remainingPIDs, _ := s.findPIDsByAppName(app.Name)
-	if len(remainingPIDs) > 0 {
-		logger.Warning("以下进程未能优雅退出，将强制终止: %v", remainingPIDs)
-		for _, pid := range remainingPIDs {
-			process, err := os.FindProcess(pid)
-			if err != nil {
-				continue
-			}
-			if err := process.Kill(); err != nil {
-				logger.Error("强制终止PID %d 失败: %v", pid, err)
-			}
+		if err := process.Kill(); err != nil {
+			logger.Error("强制终止 PID %d 失败: %v", pid, err)
 		}
 	}
 
-	// 5. 最终清理
+	// 3. 最终清理
 	app.RemovePID()
 	app.Status = models.StatusStopped
-	logger.Success("应用 %s 已成功停止。", app.Name)
+	logger.Success("应用 %s 已被强制停止。", app.Name)
 	return nil
 }
 
@@ -262,6 +244,7 @@ func (s *ApplicationService) GetApplicationStatus(app *models.Application) *mode
 
 	// 如果应用正在运行，获取端口信息
 	if app.Status == models.StatusRunning {
+		logger.Info("[调试] 步骤2/2: 正在为应用 '%s' (PID: %d) 获取端口信息...", app.Name, app.PID)
 		app.Ports = s.getPortsForPID(app.PID)
 	} else {
 		app.Ports = "" // 清空端口信息

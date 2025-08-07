@@ -98,20 +98,20 @@ func (ls *LogService) CreateLogrotateConfig(configName, description string) erro
 		return fmt.Errorf("配置名称不能为空")
 	}
 
-	// 获取项目根目录
-	projectRoot, err := ls.getProjectRoot()
-	if err != nil {
-		return fmt.Errorf("获取项目根目录失败: %v", err)
+	// 直接从全局配置获取项目根目录
+	projectRoot := config.GetProjectRoot()
+	if projectRoot == "" {
+		return fmt.Errorf("项目根目录未在配置中设置")
 	}
 
 	// 生成logrotate配置内容
-	config := ls.generateLogrotateConfig(projectRoot, description)
+	configContent := ls.generateLogrotateConfig(projectRoot, description)
 
 	// 配置文件路径
 	configPath := fmt.Sprintf("/etc/logrotate.d/%s", configName)
 
 	// 写入配置文件
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 		return fmt.Errorf("写入logrotate配置文件失败: %v", err)
 	}
 
@@ -163,7 +163,7 @@ func (ls *LogService) generateLogrotateConfig(projectRoot, description string) s
 	return config.String()
 }
 
-// getProjectRoot 获取项目根目录
+// getProjectRoot 获取项目根目录 (该函数将不再被使用)
 func (ls *LogService) getProjectRoot() (string, error) {
 	// 从当前工作目录开始查找项目根目录
 	currentDir, err := os.Getwd()
