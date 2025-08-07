@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"text/template"
 )
@@ -66,12 +65,8 @@ type ServiceConfig struct {
 	Environment      []string
 }
 
-// CreateService 创建统一的app-manager systemd服务
+// CreateService 创建统一的app-manager systemd服务（Linux专用）
 func (s *SystemdService) CreateService(serviceName string) error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows系统不支持systemd服务")
-	}
-	
 	if serviceName == "" {
 		return fmt.Errorf("服务名称不能为空")
 	}
@@ -101,12 +96,8 @@ func (s *SystemdService) CreateService(serviceName string) error {
 	return nil
 }
 
-// CreateServiceWithDescription 创建带描述的统一app-manager systemd服务
+// CreateServiceWithDescription 创建带描述的统一app-manager systemd服务（Linux专用）
 func (s *SystemdService) CreateServiceWithDescription(serviceName, description string) error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows系统不支持systemd服务")
-	}
-	
 	if serviceName == "" {
 		return fmt.Errorf("服务名称不能为空")
 	}
@@ -139,12 +130,8 @@ func (s *SystemdService) CreateServiceWithDescription(serviceName, description s
 	return nil
 }
 
-// CreateAllServices 为所有应用创建systemd服务
+// CreateAllServices 为所有应用创建systemd服务（Linux专用）
 func (s *SystemdService) CreateAllServices() error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows系统不支持systemd服务")
-	}
-	
 	logger.Title("为所有应用创建Systemd服务")
 	
 	// 获取所有应用
@@ -442,12 +429,8 @@ func (s *SystemdService) printServiceInstructions(serviceName string) {
 	logger.Warning("注意：systemd服务操作需要root权限")
 }
 
-// RemoveService 删除systemd服务
+// RemoveService 删除systemd服务（Linux专用）
 func (s *SystemdService) RemoveService(appName string) error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows系统不支持systemd服务")
-	}
-	
 	logger.Title("删除Systemd服务")
 	logger.Info("应用名称: %s", appName)
 	
@@ -488,12 +471,8 @@ func (s *SystemdService) RemoveService(appName string) error {
 	return nil
 }
 
-// ListServices 列出所有相关的systemd服务
+// ListServices 列出所有相关的systemd服务（Linux专用）
 func (s *SystemdService) ListServices() error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows系统不支持systemd服务")
-	}
-	
 	logger.Title("Systemd服务列表")
 	
 	// 获取所有应用
@@ -548,12 +527,8 @@ func (s *SystemdService) getServiceStatus(serviceName string) string {
 	}
 }
 
-// EnableService 启用服务
+// EnableService 启用服务（Linux专用）
 func (s *SystemdService) EnableService(appName string) error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows系统不支持systemd服务")
-	}
-	
 	logger.Info("启用服务: %s", appName)
 	
 	cmd := exec.Command("systemctl", "enable", appName)
@@ -565,12 +540,8 @@ func (s *SystemdService) EnableService(appName string) error {
 	return nil
 }
 
-// DisableService 禁用服务
+// DisableService 禁用服务（Linux专用）
 func (s *SystemdService) DisableService(appName string) error {
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("Windows系统不支持systemd服务")
-	}
-	
 	logger.Info("禁用服务: %s", appName)
 	
 	cmd := exec.Command("systemctl", "disable", appName)

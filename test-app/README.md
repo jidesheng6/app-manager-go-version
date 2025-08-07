@@ -14,20 +14,14 @@
 ### 1. 构建应用
 
 ```bash
-# Windows
-build.bat
-
-# 或者使用 Maven 命令
+# 使用 Maven 命令
 mvn clean package -DskipTests
 ```
 
 ### 2. 启动应用
 
 ```bash
-# Windows
-start.bat
-
-# 或者直接运行
+# 直接运行
 java -jar target/test-app.jar
 ```
 
@@ -43,10 +37,10 @@ java -jar target/test-app.jar
 
 ```bash
 # 检查应用状态（应该能检测到端口 8888）
-./app-manager.exe status
+./app-manager status
 
 # 或者直接检查端口
-netstat -ano | findstr :8888
+netstat -tlnp | grep :8888
 ```
 
 ## 应用配置
@@ -65,8 +59,6 @@ test-app/
 ├── src/main/resources/
 │   └── application.yml               # 应用配置
 ├── pom.xml                          # Maven 配置
-├── build.bat                        # 构建脚本
-├── start.bat                        # 启动脚本
 └── README.md                        # 说明文档
 ```
 

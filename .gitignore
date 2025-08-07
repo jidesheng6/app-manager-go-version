@@ -72,3 +72,6 @@ tmp/
 # Application specific
 .app-manager.yaml
 project_*/
+.tasks/
+test-app/**/*
+debug.txt

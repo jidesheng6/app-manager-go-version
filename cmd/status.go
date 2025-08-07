@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 
@@ -182,11 +181,16 @@ func executeOperationOnAllAppsOptimized(appService *services.ApplicationService,
 
 // showAllApplicationsStatus 显示所有应用状态
 func showAllApplicationsStatus(appService *services.ApplicationService) error {
+	// 显示加载提示
+	logger.Info("正在扫描应用...")
+	
 	// 发现应用
 	apps, err := appService.DiscoverApplications()
 	if err != nil {
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
+	
+	logger.Info("正在更新应用状态...")
 	
 	if len(apps) == 0 {
 		logger.Info("没有找到任何应用")
@@ -319,8 +323,12 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	}
 	table.SetHeaderColor(headerColors...)
 	
-	// 统计变量
-	var runningCount, stoppedCount int
+	// 统计运行和停止的应用数量，以及总的CPU和内存使用
+	runningCount := 0
+	stoppedCount := 0
+	totalCPU := 0.0
+	totalMemoryKB := int64(0)
+	totalMemoryPercent := 0.0
 	
 	for i, app := range apps {
 		status := appService.GetApplicationStatus(app)
@@ -328,6 +336,11 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		// 统计状态 - 使用应用的实际运行状态
 		if app.IsRunning() {
 			runningCount++
+			// 获取进程信息用于统计
+			info := app.GetProcessInfo()
+			totalCPU += info.CPUPercent
+			totalMemoryKB += info.MemoryKB
+			totalMemoryPercent += info.MemoryPercent
 		} else {
 			stoppedCount++
 		}
@@ -400,15 +413,21 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	
 	// 添加合计行
 	totalCount := len(apps)
+	
+	// 格式化合计数据
+	totalCPUStr := fmt.Sprintf("%.1f%%", totalCPU)
+	totalMemoryPercentStr := fmt.Sprintf("%.1f%%", totalMemoryPercent)
+	totalMemorySizeStr := formatMemorySize(totalMemoryKB / 1024) // 转换为MB
+	
 	summaryRow := []string{
 		"-",
 		fmt.Sprintf("合计 (%d个应用)", totalCount),
 		fmt.Sprintf("运行:%d 停止:%d", runningCount, stoppedCount),
 		"-",
 		"-",
-		"-",
-		"-",
-		"-",
+		totalCPUStr,
+		totalMemoryPercentStr,
+		totalMemorySizeStr,
 		"-",
 		"-",
 	}
@@ -450,14 +469,6 @@ func showStatusSummary(apps models.ApplicationList) {
 	
 	// 显示系统内存信息
 	showSystemMemoryInfo()
-	
-	if runningCount > 0 {
-		logger.Println("")
-		logger.Info("管理命令:")
-		logger.Printf("  查看日志: \033[37mapp-manager logs <应用名> -f\033[0m\n")
-		logger.Printf("  停止应用: \033[37mapp-manager stop <应用名>\033[0m\n")
-		logger.Printf("  重启应用: \033[37mapp-manager restart <应用名>\033[0m\n")
-	}
 }
 
 // SystemMemoryInfo 系统内存信息
@@ -499,13 +510,9 @@ func showSystemMemoryInfo() {
 	}
 }
 
-// getSystemMemoryInfo 获取系统内存信息
+// getSystemMemoryInfo 获取系统内存信息（仅Linux）
 func getSystemMemoryInfo() *SystemMemoryInfo {
-	if runtime.GOOS == "windows" {
-		return getWindowsMemoryInfo()
-	} else {
-		return getLinuxMemoryInfo()
-	}
+	return getLinuxMemoryInfo()
 }
 
 // getLinuxMemoryInfo 获取Linux系统内存信息
@@ -559,45 +566,7 @@ func getLinuxMemoryInfo() *SystemMemoryInfo {
 	return info
 }
 
-// getWindowsMemoryInfo 获取Windows系统内存信息
-func getWindowsMemoryInfo() *SystemMemoryInfo {
-	// 使用wmic获取内存信息
-	cmd := exec.Command("wmic", "OS", "get", "TotalVisibleMemorySize,FreePhysicalMemory", "/format:list")
-	output, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-	
-	info := &SystemMemoryInfo{}
-	lines := strings.Split(string(output), "\n")
-	
-	var totalKB, freeKB int64
-	
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "TotalVisibleMemorySize=") {
-			valueStr := strings.TrimPrefix(line, "TotalVisibleMemorySize=")
-			if val, err := strconv.ParseInt(valueStr, 10, 64); err == nil {
-				totalKB = val
-			}
-		} else if strings.HasPrefix(line, "FreePhysicalMemory=") {
-			valueStr := strings.TrimPrefix(line, "FreePhysicalMemory=")
-			if val, err := strconv.ParseInt(valueStr, 10, 64); err == nil {
-				freeKB = val
-			}
-		}
-	}
-	
-	// 转换为MB并计算使用量
-	if totalKB > 0 && freeKB > 0 {
-		info.TotalMB = totalKB / 1024     // KB to MB
-		info.FreeMB = freeKB / 1024       // KB to MB
-		info.UsedMB = info.TotalMB - info.FreeMB
-		info.AvailableMB = info.FreeMB
-	}
-	
-	return info
-}
+
 
 // formatMemorySize 格式化内存大小（智能单位）
 func formatMemorySize(sizeMB int64) string {
@@ -650,10 +619,12 @@ func showAllApplicationsStatusWithInteractive(appService *services.ApplicationSe
 		
 		// 只在第一次或用户明确刷新时重新发现应用
 		if cachedApps == nil {
+			logger.Info("正在扫描应用...")
 			cachedApps, err = appService.DiscoverApplications()
 			if err != nil {
 				return fmt.Errorf("发现应用失败: %w", err)
 			}
+			logger.Info("正在更新应用状态...")
 		}
 		
 		// 显示应用状态（使用缓存的应用列表）

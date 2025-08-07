@@ -1,19 +1,19 @@
 package services
 
 import (
-	"app-manager-go-v1/internal/config"
-	"app-manager-go-v1/internal/logger"
-	"app-manager-go-v1/internal/models"
 	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"app-manager-go-v1/internal/config"
+	"app-manager-go-v1/internal/logger"
+	"app-manager-go-v1/internal/models"
 )
 
 // ApplicationService 应用服务
@@ -89,110 +89,33 @@ type JavaProcess struct {
 	JarPath string
 }
 
-// getRunningJavaProcesses 获取所有运行中的Java进程
+// getRunningJavaProcesses 获取所有运行中的Java进程（Linux专用）
 func (s *ApplicationService) getRunningJavaProcesses() []JavaProcess {
 	var processes []JavaProcess
 	
-	if runtime.GOOS == "windows" {
-		// Windows系统使用PowerShell命令获取更准确的结果
-		logger.Info("🔍 正在检测Windows系统上的Java进程...")
-		
-		// 使用PowerShell的Get-WmiObject命令
-		cmd := exec.Command("powershell", "-Command", 
-			"Get-WmiObject -Class Win32_Process -Filter \"name='java.exe'\" | Select-Object ProcessId, CommandLine | ConvertTo-Csv -NoTypeInformation")
-		output, err := cmd.Output()
-		if err != nil {
-			logger.Warning("获取Windows进程列表失败: %v", err)
-			// 回退到wmic命令
-			logger.Info("🔄 回退使用wmic命令...")
-			cmd = exec.Command("wmic", "process", "where", "name='java.exe'", "get", "ProcessId,CommandLine", "/format:csv")
-			output, err = cmd.Output()
-			if err != nil {
-				logger.Warning("wmic命令也失败: %v", err)
-				return processes
-			}
-		}
-		
-		logger.Info("📋 命令输出长度: %d 字符", len(output))
-		outputStr := string(output)
-		logger.Info("📋 原始输出: %s", outputStr)
-		
-		lines := strings.Split(outputStr, "\n")
-		logger.Info("📋 解析到 %d 行输出", len(lines))
-		
-		for i, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.Contains(line, "ProcessId") || strings.Contains(line, "CommandLine") || strings.Contains(line, "Node") {
-				continue
-			}
-			
-			logger.Info("📋 处理第 %d 行: %s", i+1, line)
-			
-			// 处理CSV格式的输出
-			if strings.Contains(line, ",") {
-				// 使用正则表达式解析CSV，处理包含逗号的命令行
-				parts := strings.SplitN(line, ",", 2)
-				if len(parts) >= 2 {
-					pidStr := strings.Trim(parts[0], "\"")
-					commandLine := strings.Trim(parts[1], "\"")
-					
-					// 如果是wmic格式，可能顺序不同
-					if !strings.Contains(commandLine, "java") && strings.Contains(pidStr, "java") {
-						// 交换顺序
-						pidStr, commandLine = commandLine, pidStr
-					}
-					
-					logger.Info("📋 PID字符串: %s", pidStr)
-					logger.Info("📋 命令行: %s", commandLine)
-					
-					// 检查是否包含.jar
-					if strings.Contains(commandLine, ".jar") {
-						logger.Info("✅ 发现包含.jar的Java进程")
-						if pid, err := strconv.Atoi(strings.TrimSpace(pidStr)); err == nil {
-							jarPath := s.extractJarPath(commandLine)
-							logger.Info("📋 提取的JAR路径: %s", jarPath)
-							if jarPath != "" {
-								processes = append(processes, JavaProcess{
-									PID:     pid,
-									Command: commandLine,
-									JarPath: jarPath,
-								})
-								logger.Info("✅ 添加Java进程: PID=%d, JAR=%s", pid, jarPath)
-							}
-						} else {
-							logger.Warning("❌ 解析PID失败: %v", err)
-						}
-					}
-				}
-			}
-		}
-		
-		logger.Info("🎯 总共发现 %d 个Java进程", len(processes))
-	} else {
-		// Linux/Unix系统使用ps命令
-		cmd := exec.Command("ps", "-eo", "pid,cmd")
-		output, err := cmd.Output()
-		if err != nil {
-			logger.Warning("获取进程列表失败: %v", err)
-			return processes
-		}
-		
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.Contains(line, "java") && strings.Contains(line, ".jar") {
-				parts := strings.Fields(line)
-				if len(parts) >= 2 {
-					if pid, err := strconv.Atoi(parts[0]); err == nil {
-						command := strings.Join(parts[1:], " ")
-						jarPath := s.extractJarPath(command)
-						if jarPath != "" {
-							processes = append(processes, JavaProcess{
-								PID:     pid,
-								Command: command,
-								JarPath: jarPath,
-							})
-						}
+	// Linux系统使用ps命令
+	cmd := exec.Command("ps", "-eo", "pid,cmd")
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Warning("获取进程列表失败: %v", err)
+		return processes
+	}
+	
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, "java") && strings.Contains(line, ".jar") {
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				if pid, err := strconv.Atoi(parts[0]); err == nil {
+					command := strings.Join(parts[1:], " ")
+					jarPath := s.extractJarPath(command)
+					if jarPath != "" {
+						processes = append(processes, JavaProcess{
+							PID:     pid,
+							Command: command,
+							JarPath: jarPath,
+						})
 					}
 				}
 			}
@@ -214,6 +137,105 @@ func (s *ApplicationService) extractJarPath(command string) string {
 	return ""
 }
 
+// ParseBatchNumbers 解析批量操作的序号
+func ParseBatchNumbers(input string) ([]int, error) {
+	var numbers []int
+	
+	// 处理逗号分隔的序号
+	parts := strings.Split(input, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		
+		// 处理范围（如 1-3）
+		if strings.Contains(part, "-") {
+			rangeParts := strings.Split(part, "-")
+			if len(rangeParts) != 2 {
+				return nil, fmt.Errorf("无效的范围格式: %s", part)
+			}
+			
+			start, err := strconv.Atoi(strings.TrimSpace(rangeParts[0]))
+			if err != nil {
+				return nil, fmt.Errorf("无效的起始序号: %s", rangeParts[0])
+			}
+			
+			end, err := strconv.Atoi(strings.TrimSpace(rangeParts[1]))
+			if err != nil {
+				return nil, fmt.Errorf("无效的结束序号: %s", rangeParts[1])
+			}
+			
+			if start > end {
+				return nil, fmt.Errorf("起始序号不能大于结束序号: %d > %d", start, end)
+			}
+			
+			for i := start; i <= end; i++ {
+				numbers = append(numbers, i)
+			}
+		} else {
+			// 单个序号
+			num, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("无效的序号: %s", part)
+			}
+			numbers = append(numbers, num)
+		}
+	}
+	
+	if len(numbers) == 0 {
+		return nil, fmt.Errorf("没有有效的序号")
+	}
+	
+	return numbers, nil
+}
+
+// ExecuteBatchOperation 执行批量操作
+func (s *ApplicationService) ExecuteBatchOperation(operation string, numbers []int, apps models.ApplicationList) error {
+	if len(apps) == 0 {
+		return fmt.Errorf("没有找到任何应用")
+	}
+	
+	successCount := 0
+	totalCount := len(numbers)
+	
+	for _, number := range numbers {
+		// 检查序号范围
+		if number < 1 || number > len(apps) {
+			logger.Error("序号超出范围: %d (应用数量: %d)", number, len(apps))
+			continue
+		}
+		
+		app := apps[number-1]
+		
+		// 执行操作
+		var err error
+		switch operation {
+		case "s":
+			logger.Info("启动应用: %s", app.Name)
+			err = s.StartApplication(app)
+		case "r":
+			logger.Info("重启应用: %s", app.Name)
+			err = s.RestartApplication(app)
+		case "k":
+			logger.Info("停止应用: %s", app.Name)
+			err = s.StopApplication(app)
+		default:
+			logger.Error("未知操作: %s", operation)
+			continue
+		}
+		
+		if err != nil {
+			logger.Error("操作失败 %s: %v", app.Name, err)
+		} else {
+			successCount++
+		}
+	}
+	
+	logger.Info("批量操作完成: 成功 %d 个，失败 %d 个", successCount, totalCount-successCount)
+	return nil
+}
+
 // matchRunningProcess 匹配运行中的进程
 func (s *ApplicationService) matchRunningProcess(app *models.Application, processes []JavaProcess) {
 	for _, process := range processes {
@@ -223,13 +245,6 @@ func (s *ApplicationService) matchRunningProcess(app *models.Application, proces
 			if app.PID != process.PID {
 				logger.Info("发现应用 %s 的实际PID %d，更新PID文件", app.Name, process.PID)
 				app.PID = process.PID
-				
-				// 如果 StartTime 为零值，设置为当前时间（估算启动时间）
-				if app.StartTime.IsZero() {
-					app.StartTime = time.Now().Add(-5 * time.Minute) // 假设已运行5分钟
-					logger.Info("设置应用 %s 的估算启动时间", app.Name)
-				}
-				
 				// 保存正确的PID到文件
 				pidFile := filepath.Join(config.GetPidsDir(), app.Name+".pid")
 				if err := app.SavePID(pidFile); err != nil {
@@ -291,8 +306,6 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	cmd := exec.Command(s.config.Global.JavaPath, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	// 设置进程属性（根据操作系统）
-	s.setSysProcAttr(cmd)
 	
 	// 设置环境变量
 	cmd.Env = os.Environ()
@@ -422,12 +435,12 @@ func (s *ApplicationService) GetApplicationStatus(app *models.Application) *mode
 		PID:         app.PID,
 		Status:      app.Status,
 		Uptime:      app.GetUptimeString(),
+		Port:        app.GetPortsString(),
 		LogFile:     app.LogFile,
 		ConfigFile:  app.ConfigFile,
 		CPUUsage:    app.GetCPUUsageString(),
 		MemoryUsage: app.GetMemoryUsageString(),
 		MemorySize:  app.GetMemorySizeString(),
-		Port:        app.GetPortString(),
 	}
 	
 	return status
@@ -452,13 +465,6 @@ func (s *ApplicationService) updateApplicationRealStatus(app *models.Application
 		if app.PID != matchingPID {
 			logger.Info("发现应用 %s 的实际PID %d，更新PID文件", app.Name, matchingPID)
 			app.PID = matchingPID
-			
-			// 如果 StartTime 为零值，设置为当前时间（估算启动时间）
-			if app.StartTime.IsZero() {
-				app.StartTime = time.Now().Add(-5 * time.Minute) // 假设已运行5分钟
-				logger.Info("设置应用 %s 的估算启动时间", app.Name)
-			}
-			
 			pidFile := filepath.Join(config.GetPidsDir(), app.Name+".pid")
 			if err := app.SavePID(pidFile); err != nil {
 				logger.Warning("保存PID文件失败 %s: %v", app.Name, err)
@@ -647,188 +653,4 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 	}
 	
 	return ""
-}
-
-// isWindows 检查是否为Windows系统
-func isWindows() bool {
-	return os.PathSeparator == '\\'
-}
-
-// ParseBatchNumbers 解析批量操作的序号（支持逗号分隔和范围表达式）
-// 例如: "1,2,3" 或 "1-5" 或 "1,3-5,7"
-func ParseBatchNumbers(input string) ([]int, error) {
-	var numbers []int
-	
-	// 按逗号分割
-	parts := strings.Split(input, ",")
-	
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		
-		// 检查是否是范围表达式（包含连字符）
-		if strings.Contains(part, "-") {
-			rangeNumbers, err := parseRangeExpression(part)
-			if err != nil {
-				return nil, fmt.Errorf("解析范围表达式 '%s' 失败: %v", part, err)
-			}
-			numbers = append(numbers, rangeNumbers...)
-		} else {
-			// 单个数字
-			num, err := strconv.Atoi(part)
-			if err != nil {
-				return nil, fmt.Errorf("无效的数字: %s", part)
-			}
-			if num <= 0 {
-				return nil, fmt.Errorf("序号必须大于0: %d", num)
-			}
-			numbers = append(numbers, num)
-		}
-	}
-	
-	// 去重并排序
-	uniqueNumbers := make(map[int]bool)
-	for _, num := range numbers {
-		uniqueNumbers[num] = true
-	}
-	
-	var result []int
-	for num := range uniqueNumbers {
-		result = append(result, num)
-	}
-	
-	// 简单排序
-	for i := 0; i < len(result)-1; i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i] > result[j] {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
-	
-	return result, nil
-}
-
-// parseRangeExpression 解析范围表达式，如 "1-5"
-func parseRangeExpression(expr string) ([]int, error) {
-	parts := strings.Split(expr, "-")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("无效的范围表达式格式")
-	}
-	
-	start, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-	if err != nil {
-		return nil, fmt.Errorf("无效的起始数字: %s", parts[0])
-	}
-	
-	end, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return nil, fmt.Errorf("无效的结束数字: %s", parts[1])
-	}
-	
-	if start <= 0 || end <= 0 {
-		return nil, fmt.Errorf("序号必须大于0")
-	}
-	
-	if start > end {
-		return nil, fmt.Errorf("起始序号不能大于结束序号")
-	}
-	
-	var numbers []int
-	for i := start; i <= end; i++ {
-		numbers = append(numbers, i)
-	}
-	
-	return numbers, nil
-}
-
-// ExecuteBatchOperation 执行批量操作
-func (s *ApplicationService) ExecuteBatchOperation(operation string, numbers []int, apps models.ApplicationList) error {
-	if len(numbers) == 0 {
-		return fmt.Errorf("没有指定要操作的应用序号")
-	}
-	
-	var targetApps []*models.Application
-	var invalidNumbers []int
-	
-	// 验证序号并收集目标应用
-	for _, num := range numbers {
-		if num < 1 || num > len(apps) {
-			invalidNumbers = append(invalidNumbers, num)
-			continue
-		}
-		targetApps = append(targetApps, apps[num-1])
-	}
-	
-	// 如果有无效序号，报告错误
-	if len(invalidNumbers) > 0 {
-		var invalidStrs []string
-		for _, num := range invalidNumbers {
-			invalidStrs = append(invalidStrs, strconv.Itoa(num))
-		}
-		return fmt.Errorf("无效的应用序号: %s (有效范围: 1-%d)", strings.Join(invalidStrs, ", "), len(apps))
-	}
-	
-	if len(targetApps) == 0 {
-		return fmt.Errorf("没有找到要操作的应用")
-	}
-	
-	// 显示将要操作的应用
-	logger.Info("将要%s以下应用:", getOperationName(operation))
-	for i, app := range targetApps {
-		logger.Printf("  %d. %s", i+1, app.Name)
-	}
-	logger.Println("")
-	
-	// 执行操作
-	var successCount, failCount int
-	for _, app := range targetApps {
-		logger.Info("正在%s应用: %s", getOperationName(operation), app.Name)
-		
-		var err error
-		switch operation {
-		case "s", "start":
-			err = s.StartApplication(app)
-		case "r", "restart":
-			err = s.RestartApplication(app)
-		case "k", "stop":
-			err = s.StopApplication(app)
-		default:
-			return fmt.Errorf("不支持的操作: %s", operation)
-		}
-		
-		if err != nil {
-			logger.Error("%s应用 %s 失败: %v", getOperationName(operation), app.Name, err)
-			failCount++
-		} else {
-			logger.Success("%s应用 %s 成功", getOperationName(operation), app.Name)
-			successCount++
-		}
-		logger.Println("")
-	}
-	
-	// 显示操作结果统计
-	logger.Info("批量操作完成:")
-	logger.Printf("  成功: %d 个应用", successCount)
-	if failCount > 0 {
-		logger.Printf("  失败: %d 个应用", failCount)
-	}
-	
-	return nil
-}
-
-// getOperationName 获取操作名称
-func getOperationName(operation string) string {
-	switch operation {
-	case "s", "start":
-		return "启动"
-	case "r", "restart":
-		return "重启"
-	case "k", "stop":
-		return "停止"
-	default:
-		return "操作"
-	}
 }

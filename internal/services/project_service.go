@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -81,62 +80,49 @@ func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 	execDir := filepath.Dir(execPath)
 	backendDir := filepath.Join(projectRoot, "project_backend")
 	
-	// 根据操作系统确定要复制的文件
+	// Linux环境，复制Linux版本的可执行文件
 	var filesToCopy []struct {
 		src, dst, desc string
 	}
 	
-	if runtime.GOOS == "windows" {
-		// Windows环境，复制.exe文件
-		exeName := filepath.Base(execPath)
+	distDir := filepath.Join(execDir, "dist")
+	
+	// 检查dist目录是否存在
+	if _, err := os.Stat(distDir); err == nil {
+		// 复制Linux AMD64版本
+		amd64File := filepath.Join(distDir, "app-manager-linux-amd64")
+		if _, err := os.Stat(amd64File); err == nil {
+			filesToCopy = append(filesToCopy, struct {
+				src, dst, desc string
+			}{
+				src:  amd64File,
+				dst:  filepath.Join(backendDir, "app-manager"),
+				desc: "Linux AMD64可执行文件",
+			})
+		}
+		
+		// 复制Linux ARM64版本（可选）
+		arm64File := filepath.Join(distDir, "app-manager-linux-arm64")
+		if _, err := os.Stat(arm64File); err == nil {
+			filesToCopy = append(filesToCopy, struct {
+				src, dst, desc string
+			}{
+				src:  arm64File,
+				dst:  filepath.Join(backendDir, "app-manager-arm64"),
+				desc: "Linux ARM64可执行文件",
+			})
+		}
+	}
+	
+	// 如果没有找到dist目录中的文件，复制当前可执行文件
+	if len(filesToCopy) == 0 {
 		filesToCopy = append(filesToCopy, struct {
 			src, dst, desc string
 		}{
 			src:  execPath,
-			dst:  filepath.Join(backendDir, exeName),
-			desc: "Windows可执行文件",
+			dst:  filepath.Join(backendDir, "app-manager"),
+			desc: "当前可执行文件",
 		})
-	} else {
-		// Linux环境，复制Linux版本的可执行文件
-		distDir := filepath.Join(execDir, "dist")
-		
-		// 检查dist目录是否存在
-		if _, err := os.Stat(distDir); err == nil {
-			// 复制Linux AMD64版本
-			amd64File := filepath.Join(distDir, "app-manager-linux-amd64")
-			if _, err := os.Stat(amd64File); err == nil {
-				filesToCopy = append(filesToCopy, struct {
-					src, dst, desc string
-				}{
-					src:  amd64File,
-					dst:  filepath.Join(backendDir, "app-manager"),
-					desc: "Linux AMD64可执行文件",
-				})
-			}
-			
-			// 复制Linux ARM64版本（可选）
-			arm64File := filepath.Join(distDir, "app-manager-linux-arm64")
-			if _, err := os.Stat(arm64File); err == nil {
-				filesToCopy = append(filesToCopy, struct {
-					src, dst, desc string
-				}{
-					src:  arm64File,
-					dst:  filepath.Join(backendDir, "app-manager-arm64"),
-					desc: "Linux ARM64可执行文件",
-				})
-			}
-		}
-		
-		// 如果没有找到dist目录中的文件，复制当前可执行文件
-		if len(filesToCopy) == 0 {
-			filesToCopy = append(filesToCopy, struct {
-				src, dst, desc string
-			}{
-				src:  execPath,
-				dst:  filepath.Join(backendDir, "app-manager"),
-				desc: "当前可执行文件",
-			})
-		}
 	}
 	
 	// 执行文件复制
@@ -146,11 +132,9 @@ func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 			continue
 		}
 		
-		// 设置可执行权限（Linux/Unix）
-		if runtime.GOOS != "windows" {
-			if err := os.Chmod(file.dst, 0755); err != nil {
-				logger.Warning("设置可执行权限失败 %s: %v", file.dst, err)
-			}
+		// 设置可执行权限（Linux）
+		if err := os.Chmod(file.dst, 0755); err != nil {
+			logger.Warning("设置可执行权限失败 %s: %v", file.dst, err)
 		}
 		
 		logger.Success("复制%s: %s", file.desc, filepath.Base(file.dst))
@@ -200,7 +184,7 @@ func (s *ProjectService) getDetailedConfigTemplate() (string, error) {
 
 # 项目根目录 [必填]
 # 说明：项目的根目录路径，必须使用绝对路径
-# 格式：/path/to/project (Linux) 或 C:\path\to\project (Windows)
+# 格式：/path/to/project (Linux)
 # 示例：/opt/myapp 或 /home/user/projects/myapp
 # 注意：路径中不能包含空格和特殊字符，建议使用英文路径
 project_root="{{PROJECT_ROOT}}"

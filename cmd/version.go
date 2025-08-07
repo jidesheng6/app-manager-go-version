@@ -31,7 +31,7 @@ var versionCmd = &cobra.Command{
 		fmt.Printf("app-manager version %s\n", Version)
 		fmt.Printf("Build date: %s\n", Date)
 		fmt.Printf("Go version: %s\n", "go1.21+")
-		fmt.Printf("Platform: %s\n", "linux/windows")
+		fmt.Printf("Platform: %s\n", "linux")
 		fmt.Println("")
 		fmt.Println("Java应用管理工具")
 		fmt.Println("Copyright (c) 2024")
