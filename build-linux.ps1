@@ -3,6 +3,7 @@
 
 param(
     [string]$Version = "1.0.0",
+    [string]$Description = "A cross-platform application management tool",
     [string]$OutputDir = "dist"
 )
 
@@ -19,12 +20,12 @@ if (!(Test-Path $OutputDir)) {
 
 # 构建信息
 $BuildTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$GitCommit = try { git rev-parse --short HEAD 2>$null } catch { "unknown" }
+$Author = "DengGuoWei-P7"
 
 # 构建 amd64 版本
 Write-Host "Building for linux/amd64..." -ForegroundColor Yellow
 $env:GOARCH = "amd64"
-$LdFlags = "-s -w -X 'main.Version=$Version' -X 'main.BuildTime=$BuildTime' -X 'main.GitCommit=$GitCommit'"
+$LdFlags = "-s -w -X 'main.Version=$Version' -X 'main.Date=$BuildTime' -X 'main.GitCommit=$GitCommit' -X 'main.Author=$Author' -X 'main.Description=$Description'"
 
 go build -ldflags $LdFlags -o "$OutputDir/app-manager-linux-amd64" .
 

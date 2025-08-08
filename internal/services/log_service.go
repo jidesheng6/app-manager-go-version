@@ -116,51 +116,65 @@ func (ls *LogService) CreateLogrotateConfig(configName, description string) erro
 	}
 
 	logger.Info("已创建logrotate配置: %s", configPath)
+	ls.printInstructions(configName)
 	return nil
 }
 
 // generateLogrotateConfig 生成logrotate配置内容
 func (ls *LogService) generateLogrotateConfig(projectRoot, description string) string {
-	var config strings.Builder
+	var configBuilder strings.Builder
+	logsDir := config.GetLogsDir()
+	rotateLogsDir := config.GetRotateLogsDir()
 
 	if description != "" {
-		config.WriteString(fmt.Sprintf("# %s\n", description))
+		configBuilder.WriteString(fmt.Sprintf("# %s\n", description))
 	}
-	config.WriteString("# App Manager 统一日志轮转配置\n")
-	config.WriteString(fmt.Sprintf("# 项目路径: %s\n\n", projectRoot))
+	configBuilder.WriteString("# App Manager 统一日志轮转配置\n")
+	configBuilder.WriteString(fmt.Sprintf("# 项目路径: %s\n\n", projectRoot))
 
-	// 配置所有应用的日志文件
-	config.WriteString(fmt.Sprintf("%s/logs/*.log {\n", projectRoot))
-	config.WriteString("    daily\n")
-	config.WriteString("    missingok\n")
-	config.WriteString("    rotate 30\n")
-	config.WriteString("    compress\n")
-	config.WriteString("    delaycompress\n")
-	config.WriteString("    notifempty\n")
-	config.WriteString("    create 644 root root\n")
-	config.WriteString("    sharedscripts\n")
-	config.WriteString("    postrotate\n")
-	config.WriteString("        # 可以在这里添加日志轮转后的处理脚本\n")
-	config.WriteString("        # 例如重启应用或发送信号\n")
-	config.WriteString("    endscript\n")
-	config.WriteString("}\n\n")
+	// 为 .log 和 .out 文件创建统一的配置块
+	configBuilder.WriteString(fmt.Sprintf("%s/*.log %s/*.out {\n", logsDir, logsDir))
+	configBuilder.WriteString(fmt.Sprintf("    %s\n", ls.config.Logrotate.LogrotateCycle))
+	configBuilder.WriteString("    missingok\n")
+	configBuilder.WriteString(fmt.Sprintf("    rotate %d\n", ls.config.Logrotate.LogrotateRotate))
+	configBuilder.WriteString(fmt.Sprintf("    size %s\n", ls.config.Logrotate.LogrotateSize))
+	configBuilder.WriteString("    compress\n")
+	configBuilder.WriteString("    delaycompress\n")
+	configBuilder.WriteString("    notifempty\n")
+	configBuilder.WriteString("    copytruncate\n")
+	configBuilder.WriteString("    create 644 root root\n")
+	configBuilder.WriteString(fmt.Sprintf("    olddir %s\n", rotateLogsDir))
+	configBuilder.WriteString("}\n")
 
-	// 配置应用特定的日志文件
-	config.WriteString(fmt.Sprintf("%s/*/logs/*.log {\n", projectRoot))
-	config.WriteString("    daily\n")
-	config.WriteString("    missingok\n")
-	config.WriteString("    rotate 30\n")
-	config.WriteString("    compress\n")
-	config.WriteString("    delaycompress\n")
-	config.WriteString("    notifempty\n")
-	config.WriteString("    create 644 root root\n")
-	config.WriteString("    sharedscripts\n")
-	config.WriteString("    postrotate\n")
-	config.WriteString("        # 应用特定的日志轮转后处理\n")
-	config.WriteString("    endscript\n")
-	config.WriteString("}\n")
+	return configBuilder.String()
+}
 
-	return config.String()
+// printInstructions 打印logrotate配置说明
+func (ls *LogService) printInstructions(configName string) {
+	logger.Println("")
+	logger.Success("Logrotate配置创建成功！")
+	logger.Println("")
+
+	logger.Println("═══════════════════════════════════════════════════════════")
+	logger.Printf("\033[33m\033[1m  下一步操作说明\033[0m\n")
+	logger.Println("═══════════════════════════════════════════════════════════")
+	logger.Println("")
+	logger.Info("配置文件已创建在: /etc/logrotate.d/%s", configName)
+	logger.Println("")
+	logger.Warning("请检查配置文件内容是否符合预期，特别是以下几项：")
+	logger.Printf("  - \033[37m轮转周期 (cycle):\033[0m %s\n", ls.config.Logrotate.LogrotateCycle)
+	logger.Printf("  - \033[37m保留文件数 (rotate):\033[0m %d\n", ls.config.Logrotate.LogrotateRotate)
+	logger.Printf("  - \033[37m文件大小 (size):\033[0m %s\n", ls.config.Logrotate.LogrotateSize)
+	logger.Println("")
+	logger.Info("你可以通过以下命令手动测试logrotate配置：")
+	logger.Printf("  \033[37m# 强制执行所有logrotate任务\033[0m\n")
+	logger.Printf("  logrotate -f /etc/logrotate.conf\n")
+	logger.Printf("  \033[37m# 强制执行并显示详细输出\033[0m\n")
+	logger.Printf("  logrotate -vf /etc/logrotate.conf\n")
+	logger.Printf("  \033[37m# 调试模式，模拟执行，不实际操作\033[0m\n")
+	logger.Printf("  logrotate -d /etc/logrotate.conf\n")
+	logger.Println("")
+	logger.Warning("注意：logrotate通常由cron每日自动执行，无需手动干预。")
 }
 
 // getProjectRoot 获取项目根目录 (该函数将不再被使用)
@@ -173,7 +187,7 @@ func (ls *LogService) getProjectRoot() (string, error) {
 
 	// 查找包含app-manager配置文件的目录
 	for {
-		configPath := filepath.Join(currentDir, "app-manager.yaml")
+		configPath := filepath.Join(currentDir, config.GetConfigFileName())
 		if _, err := os.Stat(configPath); err == nil {
 			return currentDir, nil
 		}
@@ -246,28 +260,28 @@ func (s *LogService) printLogLine(line string) {
 func (s *LogService) RotateLogs() error {
 	logger.Title("日志轮转")
 	logger.Info("开始执行日志轮转...")
-	
+
 	logsDir := config.GetLogsDir()
-	
+
 	// 检查日志目录是否存在
 	if _, err := os.Stat(logsDir); os.IsNotExist(err) {
 		logger.Warning("日志目录不存在: %s", logsDir)
 		return nil
 	}
-	
+
 	// 获取所有日志文件
 	logFiles, err := s.findLogFiles(logsDir)
 	if err != nil {
 		return fmt.Errorf("查找日志文件失败: %w", err)
 	}
-	
+
 	if len(logFiles) == 0 {
 		logger.Info("没有找到需要轮转的日志文件")
 		return nil
 	}
-	
+
 	logger.Info("找到 %d 个日志文件", len(logFiles))
-	
+
 	rotatedCount := 0
 	for _, logFile := range logFiles {
 		if s.shouldRotateLog(logFile) {
@@ -278,12 +292,13 @@ func (s *LogService) RotateLogs() error {
 			}
 		}
 	}
-	
+
 	logger.Success("日志轮转完成，共轮转 %d 个文件", rotatedCount)
-	
+
 	// 清理旧的轮转日志
-	s.cleanOldRotatedLogs(logsDir)
-	
+	rotateLogsDir := config.GetRotateLogsDir()
+	s.cleanOldRotatedLogs(rotateLogsDir)
+
 	return nil
 }
 
@@ -375,16 +390,16 @@ func (s *LogService) parseSize(sizeStr string) int64 {
 // rotateLogFile 轮转单个日志文件
 func (s *LogService) rotateLogFile(logFile string) error {
 	logger.Info("轮转日志文件: %s", logFile)
-	
+
 	// 生成轮转后的文件名
 	timestamp := time.Now().Format("20060102_150405")
 	rotatedFile := fmt.Sprintf("%s.%s", logFile, timestamp)
-	
+
 	// 重命名原文件
 	if err := os.Rename(logFile, rotatedFile); err != nil {
 		return fmt.Errorf("重命名日志文件失败: %w", err)
 	}
-	
+
 	// 创建新的空日志文件
 	newFile, err := os.Create(logFile)
 	if err != nil {
@@ -393,12 +408,12 @@ func (s *LogService) rotateLogFile(logFile string) error {
 		return fmt.Errorf("创建新日志文件失败: %w", err)
 	}
 	newFile.Close()
-	
+
 	// 设置文件权限
 	if err := os.Chmod(logFile, 0644); err != nil {
 		logger.Warning("设置日志文件权限失败: %v", err)
 	}
-	
+
 	logger.Info("日志文件轮转完成: %s -> %s", logFile, rotatedFile)
 	return nil
 }
@@ -408,17 +423,17 @@ func (s *LogService) cleanOldRotatedLogs(logsDir string) {
 	if s.config.Logrotate.LogrotateRotate <= 0 {
 		return
 	}
-	
+
 	logger.Info("清理旧的轮转日志文件...")
-	
+
 	// 按应用分组查找轮转日志
 	appLogs := make(map[string][]string)
-	
+
 	filepath.Walk(logsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return err
 		}
-		
+
 		name := info.Name()
 		// 匹配轮转日志文件格式: app.log.20240101_120000
 		if strings.Contains(name, ".log.") || strings.Contains(name, ".out.") {
@@ -429,13 +444,13 @@ func (s *LogService) cleanOldRotatedLogs(logsDir string) {
 			} else {
 				appName = strings.Split(name, ".out.")[0] + ".out"
 			}
-			
+
 			appLogs[appName] = append(appLogs[appName], path)
 		}
-		
+
 		return nil
 	})
-	
+
 	// 为每个应用清理旧日志
 	for appName, logs := range appLogs {
 		s.cleanAppRotatedLogs(appName, logs)

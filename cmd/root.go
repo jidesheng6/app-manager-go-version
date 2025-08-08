@@ -16,24 +16,10 @@ var (
 
 // rootCmd 根命令
 var rootCmd = &cobra.Command{
-	Use:   "app-manager",
-	Short: "Java应用管理工具",
-	Long: `app-manager 是一个用于管理Java应用程序的命令行工具。
-
-支持的功能：
-  • 应用生命周期管理（启动、停止、重启、状态查询）
-  • 项目初始化和目录结构管理
-  • 应用更新和备份
-  • 日志查看和轮转
-  • Systemd服务集成
-  • 配置文件管理
-
-使用示例：
-  app-manager init                    # 初始化项目
-  app-manager start myapp             # 启动应用
-  app-manager status                  # 查看所有应用状态
-  app-manager logs myapp -f           # 实时查看应用日志
-  app-manager backup                  # 备份项目文件`,
+	Use:   "app-manager-go",
+	Short: "一个用于管理Java应用的CLI工具",
+	Long: `一个功能更全面、性能更好、更易于扩展的Java应用管理工具。
+它旨在取代旧的app-manager.sh脚本，提供更一致和强大的功能。`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// 初始化配置
 		config.Init()
@@ -50,8 +36,15 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+// Signal-handling functions, to be set by the main package
+var (
+	DisableSignalHandling func()
+	EnableSignalHandling  func()
+)
+
 // Execute 执行根命令
 func Execute() error {
+	// 在执行前加载配置文件
 	return rootCmd.Execute()
 }
 

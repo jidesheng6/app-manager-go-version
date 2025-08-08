@@ -11,6 +11,9 @@ import (
 	"time"
 )
 
+// IncludeDatabaseConfigInInit 控制在init时是否包含数据库配置
+const IncludeDatabaseConfigInInit = false
+
 // ProjectService 项目服务
 type ProjectService struct {
 	config *config.Config
@@ -86,29 +89,30 @@ func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 	}
 	
 	distDir := filepath.Join(execDir, "dist")
+	programName := config.GetProgramName()
 	
 	// 检查dist目录是否存在
 	if _, err := os.Stat(distDir); err == nil {
 		// 复制Linux AMD64版本
-		amd64File := filepath.Join(distDir, "app-manager-linux-amd64")
+		amd64File := filepath.Join(distDir, programName+"-linux-amd64")
 		if _, err := os.Stat(amd64File); err == nil {
 			filesToCopy = append(filesToCopy, struct {
 				src, dst, desc string
 			}{
 				src:  amd64File,
-				dst:  filepath.Join(backendDir, "app-manager"),
+				dst:  filepath.Join(backendDir, programName),
 				desc: "Linux AMD64可执行文件",
 			})
 		}
 		
 		// 复制Linux ARM64版本（可选）
-		arm64File := filepath.Join(distDir, "app-manager-linux-arm64")
+		arm64File := filepath.Join(distDir, programName+"-linux-arm64")
 		if _, err := os.Stat(arm64File); err == nil {
 			filesToCopy = append(filesToCopy, struct {
 				src, dst, desc string
 			}{
 				src:  arm64File,
-				dst:  filepath.Join(backendDir, "app-manager-arm64"),
+				dst:  filepath.Join(backendDir, programName+"-arm64"),
 				desc: "Linux ARM64可执行文件",
 			})
 		}
@@ -120,7 +124,7 @@ func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 			src, dst, desc string
 		}{
 			src:  execPath,
-			dst:  filepath.Join(backendDir, "app-manager"),
+			dst:  filepath.Join(backendDir, programName),
 			desc: "当前可执行文件",
 		})
 	}
@@ -166,21 +170,19 @@ func (s *ProjectService) copyFile(src, dst string) error {
 	return err
 }
 
-// getDetailedConfigTemplate 获取详细的配置模板
-func (s *ProjectService) getDetailedConfigTemplate() (string, error) {
-	return `# Java应用管理系统配置文件 (详细版)
-# 本文件为INI格式配置文件，请按照要求填写各项参数
-# 注意：带有#号的行为注释行，不会被程序读取
-# 
-# 配置说明：
-# [必填] - 必须填写的配置项，不填写将导致程序无法正常运行
-# [选填] - 可选配置项，可以留空或删除整行
-# [默认] - 如果不填写，程序将使用的默认值
+// getConfigTemplateSection 辅助函数，用于生成配置段
+func (s *ProjectService) getConfigTemplateSection(title, content string) string {
+	var sb strings.Builder
+	sb.WriteString("\n# ═══════════════════════════════════════════════════════════\n")
+	sb.WriteString(fmt.Sprintf("#                        %s\n", title))
+	sb.WriteString("# ═══════════════════════════════════════════════════════════\n")
+	sb.WriteString(content)
+	return sb.String()
+}
 
-# ═══════════════════════════════════════════════════════════
-#                        全局配置
-# ═══════════════════════════════════════════════════════════
-[global]
+// getGlobalConfigTemplate 获取全局配置模板
+func (s *ProjectService) getGlobalConfigTemplate() string {
+	return `[global]
 
 # 项目根目录 [必填]
 # 说明：项目的根目录路径，必须使用绝对路径
@@ -199,12 +201,12 @@ project_root="{{PROJECT_ROOT}}"
 #   /opt/jdk-11/bin/java          # 指定Java 11
 #   /usr/lib/jvm/java-17-openjdk/bin/java  # 指定Java 17
 # 注意：不需要引号包围
-java_path="{{JAVA_PATH}}"
+java_path="{{JAVA_PATH}}"`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                      Nacos配置中心
-# ═══════════════════════════════════════════════════════════
-[nacos]
+// getNacosConfigTemplate 获取Nacos配置模板
+func (s *ProjectService) getNacosConfigTemplate() string {
+	return `[nacos]
 
 # Nacos服务器地址 [选填]
 # 说明：Nacos配置中心的服务器地址，留空表示不使用Nacos
@@ -229,12 +231,47 @@ nacos_server=
 #   prod                         # 生产环境
 #   550e8400-e29b-41d4-a716-446655440000  # UUID格式
 # 注意：不需要引号包围
-nacos_namespace=
+nacos_namespace=`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                        应用配置
-# ═══════════════════════════════════════════════════════════
-[application]
+// getStartupPriorityConfigTemplate 获取应用启动优先级配置模板
+func (s *ProjectService) getStartupPriorityConfigTemplate() string {
+	return `[startup_priority]
+
+# 说明：
+#   本配置段用于定义特定应用程序的启动顺序和延迟。
+#   对于有依赖关系的应用（如网关依赖于认证中心），此功能非常有用。
+#   未在此处配置的应用将按默认顺序启动。
+#
+# 配置格式：
+#   <app_name>.priority = <priority>
+#   <app_name>.delay = <delay_in_seconds>
+#
+# 参数说明：
+#   <app_name>          - 应用程序的名称（不含.jar后缀）。
+#   priority            - 启动优先级，数字越小，优先级越高（例如，1会比10先启动）。
+#   delay               - 启动前延迟的秒数，用于等待依赖项完全启动。
+#
+# 示例：
+#   假设 party-gateway 依赖于 party-auth。
+#   我们希望 party-auth 首先启动，并等待5秒后，再启动 party-gateway。
+#
+#   party-auth.priority = 10
+#   party-auth.delay = 0
+#
+#   party-gateway.priority = 20
+#   party-gateway.delay = 5
+#
+# 注意：
+#   - 每个应用的 priority 和 delay 必须成对出现。
+#   - app_name 必须是唯一的。
+#   - 如果多个应用的 priority 相同，它们的启动顺序将不确定。
+#   - 此处无需填写任何内容，仅为示例说明。`
+}
+
+// getApplicationConfigTemplate 获取应用配置模板
+func (s *ProjectService) getApplicationConfigTemplate() string {
+	return `[application]
 
 # 应用程序类型 [选填，默认：mixed]
 # 说明：指定要启动的应用程序类型
@@ -287,12 +324,12 @@ app_type="{{APP_TYPE}}"
 #   jvm_params="-Xms2g -Xmx8g -XX:MetaspaceSize=512m -XX:+UseG1GC -XX:G1HeapRegionSize=16m"
 #
 # 注意：必须用双引号包围整个参数字符串
-jvm_params="{{JVM_PARAMS}}"
+jvm_params="{{JVM_PARAMS}}"`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                        备份配置
-# ═══════════════════════════════════════════════════════════
-[backup]
+// getBackupConfigTemplate 获取备份配置模板
+func (s *ProjectService) getBackupConfigTemplate() string {
+	return `[backup]
 
 # 备份文件前缀 [选填，默认：Application_Backup]
 # 说明：生成备份文件时使用的前缀名称
@@ -313,12 +350,12 @@ backup_prefix="{{BACKUP_PREFIX}}"
 #   90    # 保留90天内的备份
 #   0     # 不自动清理备份
 # 注意：不需要引号包围
-backup_retention_days={{BACKUP_RETENTION_DAYS}}
+backup_retention_days={{BACKUP_RETENTION_DAYS}}`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                      日志轮转配置
-# ═══════════════════════════════════════════════════════════
-[logrotate]
+// getLogrotateConfigTemplate 获取日志轮转配置模板
+func (s *ProjectService) getLogrotateConfigTemplate() string {
+	return `[logrotate]
 
 # 日志轮转大小 [选填，默认：30m]
 # 说明：单个日志文件达到此大小时进行轮转
@@ -353,12 +390,12 @@ logrotate_cycle="{{LOGROTATE_CYCLE}}"
 #   30    # 保留30份日志文件
 #   0     # 不限制保留份数
 # 注意：不需要引号包围
-logrotate_rotate={{LOGROTATE_ROTATE}}
+logrotate_rotate={{LOGROTATE_ROTATE}}`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                      系统服务配置
-# ═══════════════════════════════════════════════════════════
-[systemd]
+// getSystemdConfigTemplate 获取Systemd服务配置模板
+func (s *ProjectService) getSystemdConfigTemplate() string {
+	return `[systemd]
 
 # 服务重启策略 [选填，默认：always]
 # 说明：systemd服务失败后的重启策略
@@ -405,12 +442,12 @@ service_timeout_start_sec={{SERVICE_TIMEOUT_START_SEC}}
 #   60    # 60秒超时，给应用更多时间清理
 #   0     # 使用系统默认值
 # 注意：不需要引号包围
-service_timeout_stop_sec={{SERVICE_TIMEOUT_STOP_SEC}}
+service_timeout_stop_sec={{SERVICE_TIMEOUT_STOP_SEC}}`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                    达梦数据库备份配置
-# ═══════════════════════════════════════════════════════════
-[database-dm]
+// getDatabaseDmConfigTemplate 获取达梦数据库备份配置模板
+func (s *ProjectService) getDatabaseDmConfigTemplate() string {
+	return `[database-dm]
 
 # 是否启用达梦数据库备份 [选填，默认：false]
 # 说明：是否启用达梦数据库的自动备份功能
@@ -521,12 +558,12 @@ backup_retention_days=7
 #   backup_params="COMPRESS=Y GRANTS=Y INDEXES=Y"
 #   backup_params="COMPRESS=Y OWNER=APP_SCHEMA"
 # 注意：必须用双引号包围
-backup_params="COMPRESS=Y GRANTS=Y INDEXES=Y TRIGGERS=Y"
+backup_params="COMPRESS=Y GRANTS=Y INDEXES=Y TRIGGERS=Y"`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                    MySQL数据库备份配置
-# ═══════════════════════════════════════════════════════════
-[database-mysql]
+// getDatabaseMysqlConfigTemplate 获取MySQL数据库备份配置模板
+func (s *ProjectService) getDatabaseMysqlConfigTemplate() string {
+	return `[database-mysql]
 
 # 是否启用MySQL数据库备份 [选填，默认：false]
 # 说明：是否启用MySQL数据库的自动备份功能
@@ -638,12 +675,12 @@ backup_retention_days=7
 #   backup_params="--single-transaction --routines --triggers"
 #   backup_params="--quick --lock-tables=false --complete-insert"
 # 注意：必须用双引号包围
-backup_params="--single-transaction --routines --triggers --events --quick"
+backup_params="--single-transaction --routines --triggers --events --quick"`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                    数据库通用配置
-# ═══════════════════════════════════════════════════════════
-[database-common]
+// getDatabaseCommonConfigTemplate 获取数据库通用配置模板
+func (s *ProjectService) getDatabaseCommonConfigTemplate() string {
+	return `[database-common]
 
 # 备份前是否测试连接 [选填，默认：true]
 # 说明：在执行备份前先测试数据库连接是否正常
@@ -682,13 +719,12 @@ compression_level=6
 #   true    # 启用并行备份，适合大型数据库
 #   false   # 单线程备份，适合小型数据库
 # 注意：不需要引号包围
-parallel_backup=false
+parallel_backup=false`
+}
 
-# ═══════════════════════════════════════════════════════════
-#                        配置文件说明
-# ═══════════════════════════════════════════════════════════
-# 
-# 1. 必填参数：如果不填写，脚本将无法正常工作
+// getFooterTemplate 获取配置文件脚部模板
+func (s *ProjectService) getFooterTemplate() string {
+	return `# 1. 必填参数：如果不填写，脚本将无法正常工作
 # 2. 选填参数：如果不需要可以删除整行，或者设置为空值
 # 3. 空值设置：如果要设置为空，请使用 parameter="" 格式
 # 4. 引号使用：
@@ -700,7 +736,47 @@ parallel_backup=false
 # 7. 配置验证：可以使用 app-manager config validate 命令验证配置
 # 8. 配置示例：可以使用 app-manager config example 命令查看配置示例
 #
-# 如有问题，请参考文档或联系技术支持。`, nil
+# 如有问题，请参考文档或联系技术支持。`
+}
+
+
+// getDetailedConfigTemplate 获取详细的配置模板
+func (s *ProjectService) getDetailedConfigTemplate() (string, error) {
+	var sb strings.Builder
+
+	// 文件头
+	sb.WriteString(`# Java应用管理系统配置文件 (详细版)
+# 本文件为INI格式配置文件，请按照要求填写各项参数
+# 注意：带有#号的行为注释行，不会被程序读取
+# 
+# 配置说明：
+# [必填] - 必须填写的配置项，不填写将导致程序无法正常运行
+# [选填] - 可选配置项，可以留空或删除整行
+# [默认] - 如果不填写，程序将使用的默认值
+`)
+
+	// 拼接各个配置段
+	sb.WriteString(s.getConfigTemplateSection("全局配置", s.getGlobalConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("Nacos配置中心", s.getNacosConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("应用启动优先级配置", s.getStartupPriorityConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("应用配置", s.getApplicationConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("备份配置", s.getBackupConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("日志轮转配置", s.getLogrotateConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("系统服务配置", s.getSystemdConfigTemplate()))
+
+	if IncludeDatabaseConfigInInit {
+		sb.WriteString(s.getConfigTemplateSection("达梦数据库备份配置", s.getDatabaseDmConfigTemplate()))
+		sb.WriteString(s.getConfigTemplateSection("MySQL数据库备份配置", s.getDatabaseMysqlConfigTemplate()))
+		sb.WriteString(s.getConfigTemplateSection("数据库通用配置", s.getDatabaseCommonConfigTemplate()))
+	}
+
+	// 文件尾部说明
+	sb.WriteString("\n# ═══════════════════════════════════════════════════════════\n")
+	sb.WriteString("#                        配置文件说明\n")
+	sb.WriteString("# ═══════════════════════════════════════════════════════════\n")
+	sb.WriteString(s.getFooterTemplate())
+
+	return sb.String(), nil
 }
 
 // createDirectoryStructure 创建目录结构
@@ -815,21 +891,22 @@ func (s *ProjectService) printUsageInstructions(projectRoot string) {
 	logger.Printf("     cd %s/project_backend\n", projectRoot)
 	logger.Println("")
 	
+	programName := config.GetProgramName()
 	logger.Printf("\033[33m\033[1m  📖 查看帮助信息：\033[0m\n")
-	logger.Printf("     app-manager-go-v1 help\n")
+	logger.Printf("     %s help\n", programName)
 	logger.Println("")
 	
 	logger.Printf("\033[33m\033[1m  🔧 常用操作命令：\033[0m\n")
-	logger.Printf("     app-manager-go-v1 start              # 启动应用\n")
-	logger.Printf("     app-manager-go-v1 status             # 查看状态\n")
-	logger.Printf("     app-manager-go-v1 logs <应用名>      # 查看日志\n")
+	logger.Printf("     %s start              # 启动应用\n", programName)
+	logger.Printf("     %s status             # 查看状态\n", programName)
+	logger.Printf("     %s logs <应用名>      # 查看日志\n", programName)
 	logger.Println("")
 	
 	logger.Warning("请先将您的JAR/WAR文件复制到project_backend目录，然后开始使用应用管理")
 }
 
 // UpdatePrepare 更新准备
-func (s *ProjectService) UpdatePrepare() error {
+func (s *ProjectService) UpdatePrepare(autoBackup bool) error {
 	logger.Title("应用更新准备")
 	
 	projectRoot := config.GetProjectRoot()
@@ -858,18 +935,20 @@ func (s *ProjectService) UpdatePrepare() error {
 	logger.Info("  临时解压目录: %s", tempUnzipDir)
 	
 	// 创建更新前备份
-	backupService := NewBackupService()
-	backupPrefix := s.config.Backup.BackupPrefix
-	if backupPrefix == "" {
-		backupPrefix = "update_backup" // 如果未配置，则使用默认值
-	}
-	backupName := fmt.Sprintf("%s_%s", backupPrefix, time.Now().Format("20060102_150405"))
-	
-	logger.Info("创建更新前备份...")
-	if err := backupService.BackupProject(backupName, "更新前自动备份"); err != nil {
-		logger.Warning("备份失败，但继续更新准备: %v", err)
-	} else {
-		logger.Success("备份创建成功")
+	if autoBackup || s.promptForBackup() {
+		backupService := NewBackupService()
+		backupPrefix := s.config.Backup.BackupPrefix
+		if backupPrefix == "" {
+			backupPrefix = "update_backup" // 如果未配置，则使用默认值
+		}
+		backupName := backupPrefix
+
+		logger.Info("创建更新前备份...")
+		if err := backupService.BackupProject(backupName, "更新前自动备份"); err != nil {
+			logger.Warning("备份失败，但继续更新准备: %v", err)
+		} else {
+			logger.Success("备份创建成功")
+		}
 	}
 	
 	// 检查运行中的应用并提示用户手动停止
@@ -886,11 +965,8 @@ func (s *ProjectService) UpdatePrepare() error {
 			logger.Printf("  • %s (PID: %d)", app.Name, app.PID)
 		}
 		logger.Println("")
-		logger.Warning("更新前请手动停止所有运行中的应用：")
-		logger.Printf("  app-manager-go-v1 stop\n")
+		logger.Warning("更新应用后，请记得使用 'app-manager restart' 或 'app-manager start' 命令来重启或启动应用。")
 		logger.Println("")
-		logger.Info("停止应用后，请重新执行更新准备命令")
-		return fmt.Errorf("请先停止所有运行中的应用，然后重新执行更新准备")
 	}
 	
 	// 显示更新流程说明
@@ -924,7 +1000,7 @@ func (s *ProjectService) printUpdateInstructions(timeDir, tempUnzipDir string) {
 	
 	logger.Printf("\033[33m\033[1m  步骤3: 备份当前版本\033[0m\n")
 	logger.Printf("     当前版本已自动备份，如需手动备份：\n")
-	logger.Printf("     \033[37mapp-manager backup manual_backup_before_update\033[0m\n")
+	logger.Printf("     \033[37m%s backup manual_backup_before_update\033[0m\n", config.GetProgramName())
 	logger.Println("")
 	
 	logger.Printf("\033[33m\033[1m  步骤4: 更新应用文件\033[0m\n")
@@ -934,13 +1010,13 @@ func (s *ProjectService) printUpdateInstructions(timeDir, tempUnzipDir string) {
 	
 	logger.Printf("\033[33m\033[1m  步骤5: 启动应用\033[0m\n")
 	logger.Printf("     启动更新后的应用：\n")
-	logger.Printf("     \033[37mapp-manager start\033[0m\n")
+	logger.Printf("     \033[37m%s start\033[0m\n", config.GetProgramName())
 	logger.Println("")
 	
 	logger.Printf("\033[33m\033[1m  步骤6: 验证更新\033[0m\n")
 	logger.Printf("     检查应用状态和功能：\n")
-	logger.Printf("     \033[37mapp-manager status\033[0m\n")
-	logger.Printf("     \033[37mapp-manager logs <应用名>\033[0m\n")
+	logger.Printf("     \033[37m%s status\033[0m\n", config.GetProgramName())
+	logger.Printf("     \033[37m%s logs <应用名>\033[0m\n", config.GetProgramName())
 	logger.Println("")
 	
 	logger.Warning("注意事项：")
@@ -954,4 +1030,16 @@ func (s *ProjectService) printUpdateInstructions(timeDir, tempUnzipDir string) {
 	logger.Printf("  时间目录: \033[33m%s\033[0m\n", timeDir)
 	logger.Printf("  解压目录: \033[33m%s\033[0m\n", tempUnzipDir)
 	logger.Printf("  应用目录: \033[33m%s/project_backend\033[0m\n", config.GetProjectRoot())
+}
+
+// promptForBackup 提示用户是否需要备份
+func (s *ProjectService) promptForBackup() bool {
+	logger.Println("")
+	logger.Question("在更新前是否需要创建备份？(yes/no) [yes]: ")
+
+	var response string
+	fmt.Scanln(&response)
+
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "yes" || response == "y" || response == ""
 }

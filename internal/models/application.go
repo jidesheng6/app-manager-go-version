@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ type Application struct {
 	PIDFile    string    // PID文件路径
 	ConfigFile string    // 配置文件路径
 	Ports      string    // 应用监听的端口
+	Priority   int       // 启动优先级（数字越小优先级越高，默认为100）
+	StartupDelay int         // 启动延迟（秒）
 }
 
 // AppStatus 应用状态枚举
@@ -62,6 +65,7 @@ func NewApplication(filePath string) *Application {
 		Name:     name,
 		FilePath: filePath,
 		Status:   StatusStopped,
+		Priority: 100, // 默认优先级为100
 	}
 }
 
@@ -429,4 +433,15 @@ func (list ApplicationList) Stopped() ApplicationList {
 		}
 	}
 	return result
+}
+
+// SortByPriority 按优先级对应用列表进行排序
+func (al ApplicationList) SortByPriority() {
+	sort.Slice(al, func(i, j int) bool {
+		if al[i].Priority != al[j].Priority {
+			return al[i].Priority < al[j].Priority
+		}
+		// 如果优先级相同，则按名称排序
+		return al[i].Name < al[j].Name
+	})
 }

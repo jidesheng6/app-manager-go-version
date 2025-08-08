@@ -7,12 +7,16 @@ import (
 	"app-manager-go-v1/internal/services"
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/chzyer/readline"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 )
@@ -51,7 +55,7 @@ var statusCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		appService := services.NewApplicationService()
-		
+
 		if len(args) > 0 {
 			// 查看指定应用状态
 			appName := args[0]
@@ -59,6 +63,14 @@ var statusCmd = &cobra.Command{
 				handleError(err, 1)
 			}
 		} else {
+			// 禁用全局信号处理器，并确保在退出时恢复
+			if DisableSignalHandling != nil {
+				DisableSignalHandling()
+			}
+			if EnableSignalHandling != nil {
+				defer EnableSignalHandling()
+			}
+
 			// 查看所有应用状态并进入交互模式
 			if err := showAllApplicationsStatusWithInteractive(appService); err != nil {
 				handleError(err, 1)
@@ -79,7 +91,7 @@ func showSingleApplicationStatus(appService *services.ApplicationService, appNam
 	if err != nil {
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
-	
+
 	// 查找应用
 	app := apps.FindByName(appName)
 	if app == nil {
@@ -96,20 +108,20 @@ func showSingleApplicationStatus(appService *services.ApplicationService, appNam
 		}
 		app = matchedApps[0]
 	}
-	
+
 	// 获取应用状态
 	status := appService.GetApplicationStatus(app)
-	
+
 	if statusJSON {
 		// TODO: 实现JSON输出
 		logger.Info("JSON输出功能待实现")
 		return nil
 	}
-	
+
 	// 显示详细状态
 	logger.Title("应用状态详情")
 	showDetailedStatus(status)
-	
+
 	return nil
 }
 
@@ -120,12 +132,12 @@ func showAllApplicationsStatus(appService *services.ApplicationService) error {
 	if err != nil {
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
-	
+
 	if len(apps) == 0 {
 		logger.Info("没有找到任何应用")
 		return nil
 	}
-	
+
 	logger.Title("应用状态概览")
 
 	if statusDetail {
@@ -134,9 +146,9 @@ func showAllApplicationsStatus(appService *services.ApplicationService) error {
 			if i > 0 {
 				logger.Println("")
 			}
-			
+
 			status := appService.GetApplicationStatus(app)
-			
+
 			showDetailedStatus(status)
 		}
 	} else {
@@ -156,7 +168,7 @@ func showAllApplicationsStatus(appService *services.ApplicationService) error {
 // showSystemInfo 显示系统信息
 func showSystemInfo() {
 	systemInfo := config.GetSystemInfo()
-	
+
 	logger.Println("")
 	logger.Info("系统信息:")
 	logger.Printf("  主机名: \033[36m%s\033[0m\n", systemInfo["hostname"])
@@ -172,27 +184,27 @@ func showSystemInfo() {
 func showDetailedStatus(status *models.ApplicationStatus) {
 	logger.Printf("应用名称: \033[33m%s\033[0m\n", status.Name)
 	logger.Printf("文件路径: %s\n", status.FilePath)
-	
+
 	// 状态显示
 	statusColor := getStatusColor(status.Status)
 	logger.Printf("运行状态: %s%s\033[0m\n", statusColor, status.Status.String())
-	
+
 	if status.PID > 0 {
 		logger.Printf("进程ID: %d\n", status.PID)
 	}
-	
+
 	if status.Uptime != "" {
 		logger.Printf("运行时长: %s\n", status.Uptime)
 	}
-	
+
 	if status.CPUUsage != "" {
 		logger.Printf("CPU使用率: %s\n", status.CPUUsage)
 	}
-	
+
 	if status.MemoryUsage != "" {
 		logger.Printf("内存使用: %s\n", status.MemoryUsage)
 	}
-	
+
 	if status.MemorySize != "" {
 		logger.Printf("内存大小: %s\n", status.MemorySize)
 	}
@@ -210,7 +222,7 @@ func showDetailedStatus(status *models.ApplicationStatus) {
 	} else {
 		logger.Printf("日志文件: \033[31m未配置\033[0m\n")
 	}
-	
+
 	if status.ConfigFile != "" {
 		if _, err := os.Stat(status.ConfigFile); err == nil {
 			logger.Printf("配置文件: \033[32m%s\033[0m\n", status.ConfigFile)
@@ -221,14 +233,14 @@ func showDetailedStatus(status *models.ApplicationStatus) {
 }
 
 // showTableStatus 显示表格状态
-func showTableStatus(appService *services.ApplicationService, apps models.ApplicationList) {
+func showTableStatus(appService *services.ApplicationService, apps models.ApplicationList) error {
 	// 1. 批量更新所有进程信息以提高性能
 	logger.Info("[调试] 步骤1/2: 开始通过 'ps' 命令批量获取所有进程信息...")
 	models.BatchUpdateProcessInfo(apps)
 	logger.Info("[调试] 步骤1/2: 批量获取进程信息完成。")
-	
+
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU", "内存", "内存大小", "端口"})
+	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU", "内存", "使用内存", "端口"})
 	table.SetBorder(true)
 	table.SetRowLine(false) // 减少行线以降低表格高度
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
@@ -236,7 +248,7 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	table.SetAutoFormatHeaders(true)
 	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
 	table.SetColWidth(80) // 设置列宽限制
-	
+
 	// 设置颜色
 	headerColors := []tablewriter.Colors{
 		{tablewriter.Bold, tablewriter.FgCyanColor},
@@ -250,15 +262,15 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		{tablewriter.Bold, tablewriter.FgCyanColor},
 	}
 	table.SetHeaderColor(headerColors...)
-	
+
 	// 统计变量
 	var runningCount, stoppedCount int
 	var totalCPU, totalMem float64
 	var totalMemSize int64
-	
+
 	for i, app := range apps {
 		status := appService.GetApplicationStatus(app) // 从service获取状态
-		
+
 		// 统计状态
 		if status.Status == models.StatusRunning {
 			runningCount++
@@ -270,7 +282,7 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		} else if status.Status == models.StatusStopped {
 			stoppedCount++
 		}
-		
+
 		// 格式化数据
 		pidStr := "-"
 		if status.PID > 0 {
@@ -286,22 +298,22 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		if status.Uptime != "" {
 			uptimeStr = status.Uptime
 		}
-		
+
 		cpuStr := "0%"
 		if status.CPUUsage != "" {
 			cpuStr = status.CPUUsage
 		}
-		
+
 		memoryStr := "0%"
 		if status.MemoryUsage != "" {
 			memoryStr = status.MemoryUsage
 		}
-		
+
 		memorySizeStr := "0MB"
 		if status.MemorySize != "" {
 			memorySizeStr = status.MemorySize
 		}
-		
+
 		// 添加行
 		row := []string{
 			fmt.Sprintf("%d", i+1),
@@ -314,7 +326,7 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			memorySizeStr,
 			portsStr,
 		}
-		
+
 		// 根据状态设置行颜色
 		var rowColors []tablewriter.Colors
 		statusColor := getTableStatusColor(status.Status)
@@ -325,38 +337,25 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 				rowColors = append(rowColors, tablewriter.Colors{})
 			}
 		}
-		
+
 		table.Rich(row, rowColors)
 	}
-	
+
 	// 添加合计行
 	totalCount := len(apps)
-	
+
 	avgCPUStr := "0.0%"
 	avgMemStr := "0.0%"
-	avgMemSizeStr := "0B"
 	if runningCount > 0 {
 		avgCPU := totalCPU / float64(runningCount)
 		avgMem := totalMem / float64(runningCount)
-		avgMemSize := totalMemSize / int64(runningCount)
-		
+
 		avgCPUStr = fmt.Sprintf("Avg %.1f%%", avgCPU)
 		avgMemStr = fmt.Sprintf("Avg %.1f%%", avgMem)
-		
-		// 格式化平均内存大小
-		kiloBytes := float64(avgMemSize)
-		if kiloBytes < 1024 {
-			avgMemSizeStr = fmt.Sprintf("Avg %.0fK", kiloBytes)
-		} else {
-			megaBytes := kiloBytes / 1024
-			if megaBytes < 1024 {
-				avgMemSizeStr = fmt.Sprintf("Avg %.1fM", megaBytes)
-			} else {
-				gigaBytes := megaBytes / 1024
-				avgMemSizeStr = fmt.Sprintf("Avg %.1fG", gigaBytes)
-			}
-		}
 	}
+
+	// 格式化总内存大小
+	totalMemSizeStr := formatMemorySizeKB(totalMemSize)
 
 	summaryRow := []string{
 		"-",
@@ -366,10 +365,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		"-",
 		avgCPUStr,
 		avgMemStr,
-		avgMemSizeStr,
+		totalMemSizeStr,
 		"-",
 	}
-	
+
 	// 设置合计行颜色
 	summaryColors := []tablewriter.Colors{
 		{tablewriter.Bold, tablewriter.FgYellowColor},
@@ -380,9 +379,11 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		{tablewriter.Bold, tablewriter.FgYellowColor},
 		{tablewriter.Bold, tablewriter.FgYellowColor},
 	}
-	
+
 	table.Rich(summaryRow, summaryColors)
 	table.Render()
+
+	return nil
 }
 
 // showStatusSummary 显示状态统计
@@ -390,13 +391,13 @@ func showStatusSummary(apps models.ApplicationList) {
 	runningCount := len(apps.Running())
 	stoppedCount := len(apps.Stopped())
 	totalCount := len(apps)
-	
+
 	logger.Println("")
 	logger.Info("状态统计:")
 	logger.Printf("  总计: %d 个应用\n", totalCount)
 	logger.Printf("  运行中: \033[32m%d\033[0m 个\n", runningCount)
 	logger.Printf("  已停止: \033[31m%d\033[0m 个\n", stoppedCount)
-	
+
 	// 显示系统内存信息
 	showSystemMemoryInfo()
 }
@@ -418,24 +419,24 @@ func showSystemMemoryInfo() {
 	if memInfo == nil {
 		return
 	}
-	
+
 	logger.Println("")
 	logger.Info("系统内存:")
-	
+
 	// 物理内存
 	totalStr := formatMemorySize(memInfo.TotalMB)
 	usedStr := formatMemorySize(memInfo.UsedMB)
-	
+
 	usedPercent := float64(memInfo.UsedMB) / float64(memInfo.TotalMB) * 100
-	
+
 	logger.Printf("  物理内存: %s / %s (已用 %.1f%%)", usedStr, totalStr, usedPercent)
-	
+
 	// Swap内存
 	if memInfo.SwapTotalMB > 0 {
 		swapTotalStr := formatMemorySize(memInfo.SwapTotalMB)
 		swapUsedStr := formatMemorySize(memInfo.SwapUsedMB)
 		swapUsedPercent := float64(memInfo.SwapUsedMB) / float64(memInfo.SwapTotalMB) * 100
-		
+
 		logger.Printf("  交换内存: %s / %s (已用 %.1f%%)", swapUsedStr, swapTotalStr, swapUsedPercent)
 	}
 }
@@ -445,6 +446,19 @@ func getSystemMemoryInfo() *SystemMemoryInfo {
 	return getLinuxMemoryInfo()
 }
 
+// formatMemorySizeKB 格式化内存大小（智能单位，输入为KB）
+func formatMemorySizeKB(sizeKB int64) string {
+	if sizeKB < 1024 {
+		return fmt.Sprintf("%d KB", sizeKB)
+	}
+	sizeMB := float64(sizeKB) / 1024
+	if sizeMB < 1024 {
+		return fmt.Sprintf("%.1f MB", sizeMB)
+	}
+	sizeGB := sizeMB / 1024
+	return fmt.Sprintf("%.1f GB", sizeGB)
+}
+
 // getLinuxMemoryInfo 获取Linux系统内存信息
 func getLinuxMemoryInfo() *SystemMemoryInfo {
 	cmd := exec.Command("free", "-m")
@@ -452,14 +466,14 @@ func getLinuxMemoryInfo() *SystemMemoryInfo {
 	if err != nil {
 		return nil
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	if len(lines) < 3 {
 		return nil
 	}
-	
+
 	info := &SystemMemoryInfo{}
-	
+
 	// 解析内存行
 	memFields := strings.Fields(lines[1])
 	if len(memFields) >= 7 {
@@ -476,7 +490,7 @@ func getLinuxMemoryInfo() *SystemMemoryInfo {
 			info.AvailableMB = available
 		}
 	}
-	
+
 	// 解析Swap行
 	if len(lines) >= 3 {
 		swapFields := strings.Fields(lines[2])
@@ -492,7 +506,7 @@ func getLinuxMemoryInfo() *SystemMemoryInfo {
 			}
 		}
 	}
-	
+
 	return info
 }
 
@@ -537,24 +551,42 @@ func getTableStatusColor(status models.AppStatus) tablewriter.Colors {
 
 // showAllApplicationsStatusWithInteractive 显示所有应用状态并进入交互模式
 func showAllApplicationsStatusWithInteractive(appService *services.ApplicationService) error {
+	// 初始化 readline
+	historyFile := filepath.Join(os.TempDir(), "app-manager-history.tmp")
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "\033[36m[交互模式]\033[0m 请输入命令 > ",
+		HistoryFile:     historyFile,
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+
+		HistorySearchFold:   true,
+		FuncFilterInputRune: filterInput,
+	})
+	if err != nil {
+		return fmt.Errorf("初始化Readline失败: %w", err)
+	}
+	defer rl.Close()
+
 	for {
 		// 清屏
 		fmt.Print("\033[2J\033[H")
-		
+
 		// 显示应用状态
 		if err := showAllApplicationsStatus(appService); err != nil {
-			return err
+			logger.Error("刷新应用状态失败: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
 		}
-		
+
 		// 显示交互帮助
 		showInteractiveHelp()
-		
+
 		// 等待用户输入
-		if shouldExit := handleInteractiveInput(appService); shouldExit {
+		if shouldExit := handleInteractiveInput(appService, rl); shouldExit {
 			break
 		}
 	}
-	
+
 	return nil
 }
 
@@ -563,46 +595,55 @@ func showInteractiveHelp() {
 	logger.Println("")
 	logger.Info("交互模式命令:")
 
-	// 分成两列显示，减少高度
-	fmt.Printf("  \033[33ms <序号>\033[0m - 启动 (例: s 1-3,5)     \033[33mr <序号>\033[0m - 重启 (例: r 1,2)\n")
-	fmt.Printf("  \033[33mk <序号>\033[0m - 停止 (例: k 9999)      \033[33m9999\033[0m   - 对所有应用执行操作\n")
-	fmt.Printf("  \033[33m回车\033[0m     - 刷新应用列表            \033[33mq\033[0m      - 退出交互模式\n")
+	helpText := `
+  操作:                           序号格式 (可组合):
+    s: 启动                         - 单个:     1
+    k: 停止                         - 多个:     1,3,5
+    r: 重启                         - 范围:     1-5
+                                    - 混合:     1,3-5,8
+  其他:                           - 所有:     9999
+    q, exit: 退出
+    <回车>: 刷新
 
-	logger.Printf("请输入命令: ")
+  示例: s 1,3-5 (启动1,3,4,5)   k 9999 (停止所有)
+`
+	fmt.Println(helpText)
 }
 
 // handleInteractiveInput 处理交互输入
-func handleInteractiveInput(appService *services.ApplicationService) bool {
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		logger.Error("读取输入失败: %v", err)
-		return false
+func handleInteractiveInput(appService *services.ApplicationService, rl *readline.Instance) bool {
+	line, err := rl.Readline()
+
+	if err == readline.ErrInterrupt { // Ctrl+C
+		return true // 退出
+	} else if err == io.EOF { // Ctrl+D
+		return true // 退出
 	}
-	
-	input = strings.TrimSpace(input)
-	
+
+	input := strings.TrimSpace(line)
+
 	// 空输入，刷新列表
 	if input == "" {
 		return false
 	}
-	
+
 	// 退出命令
 	if input == "q" || input == "Q" {
 		fmt.Print("\033[2J\033[H") // 清屏
 		logger.Info("退出交互模式")
 		return true
 	}
-	
+
 	// 解析命令
 	if len(input) < 1 {
 		logger.Error("无效命令")
 		return false
 	}
-	
+
 	operation := strings.ToLower(string(input[0]))
 	if operation != "s" && operation != "r" && operation != "k" {
 		logger.Error("无效操作，请使用 s(启动)/r(重启)/k(停止)")
+		time.Sleep(1 * time.Second)
 		return false
 	}
 
@@ -610,90 +651,99 @@ func handleInteractiveInput(appService *services.ApplicationService) bool {
 	numberStr := strings.TrimSpace(input[1:])
 	if numberStr == "" {
 		logger.Error("请指定应用序号")
+		time.Sleep(1 * time.Second)
 		return false
 	}
 
-	// 特殊处理 "all"
-	var numbers []int
+	// 发现应用
+	apps, err := appService.DiscoverApplications()
+	if err != nil {
+		logger.Error("发现应用失败: %v", err)
+		return false
+	}
+
+	if len(apps) == 0 {
+		logger.Info("没有找到任何应用")
+		return false
+	}
+
+	var targetApps models.ApplicationList
+
 	if strings.ToLower(numberStr) == "9999" {
-		// 标记为 all
-		numbers = []int{9999}
+		targetApps = apps
 	} else {
-		var err error
-		numbers, err = parseNumberRanges(numberStr)
+		numbers, err := parseNumberRanges(numberStr)
 		if err != nil {
 			logger.Error("无效的序号格式: %v", err)
+			time.Sleep(1 * time.Second)
 			return false
+		}
+
+		for _, num := range numbers {
+			if num < 1 || num > len(apps) {
+				logger.Error("序号 %d 超出范围 (1-%d)", num, len(apps))
+				time.Sleep(1 * time.Second)
+				return false
+			}
+			targetApps = append(targetApps, apps[num-1])
 		}
 	}
 
-	// 执行操作
-	if err := executeInteractiveOperation(appService, operation, numbers); err != nil {
-		logger.Error("操作失败: %v", err)
+	if len(targetApps) == 0 {
+		logger.Error("没有匹配到任何应用")
+		time.Sleep(1 * time.Second)
+		return false
 	}
-	
+
+	// 仅在批量启动或重启时按优先级排序
+	if (operation == "s" || operation == "r") && strings.ToLower(numberStr) == "9999" {
+		logger.Info("批量操作，按优先级排序...")
+		targetApps.SortByPriority()
+	}
+
+	executeInteractiveOperation(appService, operation, targetApps)
+
 	// 等待用户按键继续
 	logger.Printf("\n按回车键继续...")
-	reader.ReadString('\n')
-	
+	// 等待用户按任意键继续，这里用一个新的reader，避免与readline冲突
+	bufio.NewReader(os.Stdin).ReadString('\n')
+
 	return false
 }
 
 // executeInteractiveOperation 执行交互操作
-func executeInteractiveOperation(appService *services.ApplicationService, operation string, numbers []int) error {
-	// 发现应用
-	apps, err := appService.DiscoverApplications()
-	if err != nil {
-		return fmt.Errorf("发现应用失败: %w", err)
-	}
-
-	if len(apps) == 0 {
-		return fmt.Errorf("没有找到任何应用")
-	}
-
-	// 处理所有应用的情况
-	if len(numbers) == 1 && numbers[0] == 9999 {
-		return executeOperationOnAllApps(appService, apps, operation)
-	}
-
-	var targetApps models.ApplicationList
-	for _, num := range numbers {
-		if num < 1 || num > len(apps) {
-			return fmt.Errorf("序号 %d 超出范围 (1-%d)", num, len(apps))
-		}
-		targetApps = append(targetApps, apps[num-1])
-	}
-
-	if len(targetApps) == 0 {
-		return fmt.Errorf("没有匹配到任何应用")
-	}
-
-	// 执行操作
-	switch operation {
-	case "s":
-		logger.Info("批量启动应用...")
-		for _, app := range targetApps {
-			if app.Status == models.StatusStopped {
-				logger.Info("-> 启动: %s", app.Name)
-				if err := appService.StartApplication(app); err != nil {
-					logger.Error("   启动失败: %v", err)
+func executeInteractiveOperation(appService *services.ApplicationService, operation string, apps models.ApplicationList) {
+	for _, app := range apps {
+		switch operation {
+		case "s":
+			logger.Title("启动应用: %s", app.Name)
+			if !app.IsRunning() {
+				err := appService.StartApplication(app)
+				if err != nil {
+					logger.Error("启动应用 %s 失败: %v", app.Name, err)
+				} else {
+					if app.StartupDelay > 0 {
+						logger.Info("等待 %d 秒后继续...", app.StartupDelay)
+						time.Sleep(time.Duration(app.StartupDelay) * time.Second)
+					}
 				}
 			} else {
-				logger.Warning("-> 跳过: %s (已在运行或状态异常)", app.Name)
+				logger.Info("应用 %s 已在运行，跳过启动", app.Name)
 			}
-		}
-	case "r":
-		logger.Info("批量重启应用...")
-		for _, app := range targetApps {
-			logger.Info("-> 重启: %s", app.Name)
-			if err := appService.RestartApplication(app); err != nil {
-				logger.Error("   重启失败: %v", err)
+		case "r":
+			logger.Title("重启应用: %s", app.Name)
+			err := appService.RestartApplication(app)
+			if err != nil {
+				logger.Error("重启应用 %s 失败: %v", app.Name, err)
+			} else {
+				if app.StartupDelay > 0 {
+					logger.Info("等待 %d 秒后继续...", app.StartupDelay)
+					time.Sleep(time.Duration(app.StartupDelay) * time.Second)
+				}
 			}
-		}
-	case "k":
-		logger.Info("批量停止应用...")
-		for _, app := range targetApps {
-			if app.Status == models.StatusRunning {
+		case "k":
+			logger.Title("停止应用: %s", app.Name)
+			if app.IsRunning() {
 				logger.Info("-> 停止: %s", app.Name)
 				if err := appService.StopApplication(app); err != nil {
 					logger.Error("   停止失败: %v", err)
@@ -702,72 +752,7 @@ func executeInteractiveOperation(appService *services.ApplicationService, operat
 				logger.Warning("-> 跳过: %s (已停止)", app.Name)
 			}
 		}
-	default:
-		return fmt.Errorf("未知操作: %s", operation)
 	}
-
-	return nil
-}
-
-// executeOperationOnAllApps 对所有应用执行操作
-func executeOperationOnAllApps(appService *services.ApplicationService, apps models.ApplicationList, operation string) error {
-	switch operation {
-	case "s":
-		logger.Info("启动所有已停止的应用")
-		stoppedApps := apps.Stopped()
-		if len(stoppedApps) == 0 {
-			logger.Info("没有已停止的应用")
-			return nil
-		}
-		
-		successCount := 0
-		for _, app := range stoppedApps {
-			logger.Info("启动应用: %s", app.Name)
-			if err := appService.StartApplication(app); err != nil {
-				logger.Error("启动应用失败 %s: %v", app.Name, err)
-			} else {
-				successCount++
-			}
-		}
-		logger.Info("启动完成: 成功 %d 个，失败 %d 个", successCount, len(stoppedApps)-successCount)
-		
-	case "r":
-		logger.Info("重启所有应用")
-		successCount := 0
-		for _, app := range apps {
-			logger.Info("重启应用: %s", app.Name)
-			if err := appService.RestartApplication(app); err != nil {
-				logger.Error("重启应用失败 %s: %v", app.Name, err)
-			} else {
-				successCount++
-			}
-		}
-		logger.Info("重启完成: 成功 %d 个，失败 %d 个", successCount, len(apps)-successCount)
-		
-	case "k":
-		logger.Info("停止所有运行中的应用")
-		runningApps := apps.Running()
-		if len(runningApps) == 0 {
-			logger.Info("没有运行中的应用")
-			return nil
-		}
-		
-		successCount := 0
-		for _, app := range runningApps {
-			logger.Info("停止应用: %s", app.Name)
-			if err := appService.StopApplication(app); err != nil {
-				logger.Error("停止应用失败 %s: %v", app.Name, err)
-			} else {
-				successCount++
-			}
-		}
-		logger.Info("停止完成: 成功 %d 个，失败 %d 个", successCount, len(runningApps)-successCount)
-		
-	default:
-		return fmt.Errorf("未知操作: %s", operation)
-	}
-	
-	return nil
 }
 
 // parseNumberRanges 解析用户输入的数字范围字符串
@@ -825,4 +810,13 @@ func parseNumberRanges(rangeStr string) ([]int, error) {
 	sort.Ints(numbers)
 
 	return numbers, nil
+}
+
+func filterInput(r rune) (rune, bool) {
+	switch r {
+	// block CtrlZ feature
+	case readline.CharCtrlZ:
+		return r, false
+	}
+	return r, true
 }

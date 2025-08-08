@@ -4,12 +4,15 @@ import (
 	"app-manager-go-v1/internal/logger"
 	"app-manager-go-v1/internal/services"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
 var (
-	startAll bool
+	startAll      bool
+	startInterval int // 启动间隔（秒）
+	daemon        bool
 )
 
 // startCmd 启动命令
@@ -39,9 +42,66 @@ var startCmd = &cobra.Command{
 		appService := services.NewApplicationService()
 		
 		if startAll || len(args) == 0 {
-			// 启动所有应用
-			if err := startAllApplications(appService); err != nil {
-				handleError(err, 1)
+			// 批量启动
+			logger.Title("批量启动所有应用")
+			apps, err := appService.DiscoverApplications()
+			if err != nil {
+				logger.Error("发现应用失败: %v", err)
+				return
+			}
+			
+			if len(apps) == 0 {
+				logger.Info("没有找到任何应用")
+				return
+			}
+			
+			stoppedApps := apps.Stopped()
+			if len(stoppedApps) == 0 {
+				logger.Info("所有应用都已在运行中")
+				return
+			}
+
+			// 按优先级排序
+			stoppedApps.SortByPriority()
+
+			logger.Info("找到 %d 个已停止的应用，将按优先级顺序启动", len(stoppedApps))
+	
+			// 显示启动顺序
+			logger.Info("启动顺序（优先级）:")
+			for i, app := range stoppedApps {
+				logger.Info("  %d. %s (优先级: %d, 延迟: %ds)", i+1, app.Name, app.Priority, app.StartupDelay)
+			}
+			logger.Println("")
+
+			successCount := 0
+			failedCount := 0
+
+			for i, app := range stoppedApps {
+				logger.Info("启动应用 [%d/%d]: %s", i+1, len(stoppedApps), app.Name)
+				if err := appService.StartApplication(app); err != nil {
+					logger.Error("启动应用 %s 失败: %v", app.Name, err)
+					failedCount++
+				} else {
+					logger.Success("应用 %s 启动成功 (PID: %d)", app.Name, app.PID)
+					successCount++
+					// 如果设置了启动延迟，则等待
+					if app.StartupDelay > 0 {
+						logger.Info("等待 %d 秒后继续...", app.StartupDelay)
+						time.Sleep(time.Duration(app.StartupDelay) * time.Second)
+					}
+				}
+			}
+			logger.Println("")
+			logger.Info("启动完成: 成功 %d 个，失败 %d 个", successCount, failedCount)
+
+			if failedCount > 0 {
+				handleError(fmt.Errorf("部分应用启动失败"), 1)
+			}
+			
+			if daemon {
+				logger.Info("进入守护模式，程序将持续运行...")
+				// 在这里阻塞，直到接收到终止信号
+				select {}
 			}
 		} else {
 			// 启动指定应用
@@ -55,6 +115,9 @@ var startCmd = &cobra.Command{
 
 func init() {
 	startCmd.Flags().BoolVarP(&startAll, "all", "a", false, "启动所有已停止的应用")
+	startCmd.Flags().IntVarP(&startInterval, "interval", "i", 3, "启动间隔时间（秒），避免端口冲突")
+	startCmd.Flags().BoolVar(&daemon, "daemon", false, "以守护进程模式运行（用于systemd）")
+	startCmd.Flags().MarkHidden("daemon") // 将--daemon标志在帮助信息中隐藏
 }
 
 // startSingleApplication 启动单个应用
@@ -104,55 +167,6 @@ func startSingleApplication(appService *services.ApplicationService, appName str
 	if app.LogFile != "" {
 		logger.Info("日志文件: %s", app.LogFile)
 		logger.Info("查看日志: app-manager logs %s -f", app.Name)
-	}
-	
-	return nil
-}
-
-// startAllApplications 启动所有应用
-func startAllApplications(appService *services.ApplicationService) error {
-	logger.Title("启动所有应用")
-	
-	// 发现应用
-	apps, err := appService.DiscoverApplications()
-	if err != nil {
-		return fmt.Errorf("发现应用失败: %w", err)
-	}
-	
-	if len(apps) == 0 {
-		logger.Info("没有找到任何应用")
-		return nil
-	}
-	
-	// 获取已停止的应用
-	stoppedApps := apps.Stopped()
-	if len(stoppedApps) == 0 {
-		logger.Info("所有应用都已在运行中")
-		return nil
-	}
-	
-	logger.Info("找到 %d 个已停止的应用", len(stoppedApps))
-	
-	successCount := 0
-	failedCount := 0
-	
-	for _, app := range stoppedApps {
-		logger.Info("启动应用: %s", app.Name)
-		
-		if err := appService.StartApplication(app); err != nil {
-			logger.Error("启动应用失败 %s: %v", app.Name, err)
-			failedCount++
-		} else {
-			logger.Success("应用 %s 启动成功 (PID: %d)", app.Name, app.PID)
-			successCount++
-		}
-	}
-	
-	logger.Println("")
-	logger.Info("启动完成: 成功 %d 个，失败 %d 个", successCount, failedCount)
-	
-	if failedCount > 0 {
-		return fmt.Errorf("部分应用启动失败")
 	}
 	
 	return nil

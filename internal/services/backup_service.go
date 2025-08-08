@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/cheggaaa/pb/v3"
 )
 
 // BackupService 备份服务
@@ -26,15 +29,20 @@ func NewBackupService() *BackupService {
 
 // BackupProject 备份项目文件
 func (s *BackupService) BackupProject(backupName, description string) error {
-	// 生成备份文件名，始终添加时间戳（包含毫秒以避免重复）
-	timestamp := time.Now().Format("20060102_150405_000")
-	var finalBackupName string
-	if backupName == "" {
-		finalBackupName = fmt.Sprintf("%s_%s", s.config.Backup.BackupPrefix, timestamp)
-	} else {
-		finalBackupName = fmt.Sprintf("%s_%s", backupName, timestamp)
+	// 正则表达式，用于匹配 YYYYMMDD_HHMMSS 格式的时间戳
+	re := regexp.MustCompile(`_\d{8}_\d{6}`)
+	finalBackupName := backupName
+
+	// 如果 backupName 中不包含时间戳，则添加一个
+	if !re.MatchString(backupName) {
+		timestamp := time.Now().Format("20060102_150405")
+		if backupName == "" {
+			finalBackupName = fmt.Sprintf("%s_%s", s.config.Backup.BackupPrefix, timestamp)
+		} else {
+			finalBackupName = fmt.Sprintf("%s_%s", backupName, timestamp)
+		}
 	}
-	
+
 	logger.Title("项目文件备份")
 	logger.Info("备份名称: %s", finalBackupName)
 	logger.Info("开始备份项目文件...")
@@ -89,24 +97,38 @@ func (s *BackupService) createZipBackup(sourceDir, targetFile, backupName, descr
 	backupDirs := []string{
 		"project_backend",
 		"project_frontend",
-		"project_cache",
 	}
-	
-	fileCount := 0
-	
+
+	// 计算总文件大小以用于进度条
+	totalSize := int64(0)
 	for _, dir := range backupDirs {
 		dirPath := filepath.Join(sourceDir, dir)
 		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 			continue
 		}
-		
-		logger.Info("备份目录: %s", dir)
-		
+		filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() && !s.shouldSkipFile(path, info) {
+				totalSize += info.Size()
+			}
+			return nil
+		})
+	}
+
+	// 初始化进度条
+	bar := pb.Start64(totalSize)
+	bar.Set(pb.Bytes, true)
+
+	for _, dir := range backupDirs {
+		dirPath := filepath.Join(sourceDir, dir)
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			continue
+		}
+
 		err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
-			
+
 			// 跳过某些文件和目录
 			if s.shouldSkipFile(path, info) {
 				if info.IsDir() {
@@ -114,54 +136,55 @@ func (s *BackupService) createZipBackup(sourceDir, targetFile, backupName, descr
 				}
 				return nil
 			}
-			
+
 			// 计算相对路径
 			relPath, err := filepath.Rel(sourceDir, path)
 			if err != nil {
 				return err
 			}
-			
+
 			// 标准化路径分隔符
 			relPath = filepath.ToSlash(relPath)
-			
+
 			if info.IsDir() {
 				// 创建目录条目
 				_, err := zipWriter.Create(relPath + "/")
 				return err
 			}
-			
+
 			// 创建文件条目
 			zipFileWriter, err := zipWriter.Create(relPath)
 			if err != nil {
 				return err
 			}
-			
+
 			// 复制文件内容
 			file, err := os.Open(path)
 			if err != nil {
 				return err
 			}
 			defer file.Close()
-			
-			_, err = io.Copy(zipFileWriter, file)
+
+			// 创建一个代理读取器以更新进度条
+			reader := bar.NewProxyReader(file)
+
+			_, err = io.Copy(zipFileWriter, reader)
 			if err != nil {
 				return err
 			}
-			
-			fileCount++
-			if fileCount%100 == 0 {
-				logger.Info("已备份 %d 个文件...", fileCount)
-			}
-			
+
+			bar.Increment()
+
 			return nil
 		})
-		
+
 		if err != nil {
 			return fmt.Errorf("备份目录失败 %s: %w", dir, err)
 		}
 	}
-	
-	logger.Info("备份完成，共备份 %d 个文件", fileCount)
+
+	bar.Finish()
+	logger.Info("备份完成")
 	return nil
 }
 
@@ -182,8 +205,7 @@ func (s *BackupService) addReadmeToZip(zipWriter *zip.Writer, backupName, descri
 
 备份内容：
   - project_backend/    # 后端应用目录
-  - project_frontend/   # 前端应用目录  
-  - project_cache/      # 缓存文件目录
+  - project_frontend/   # 前端应用目录
 
 注意事项：
   1. 此备份不包含日志文件和临时文件
