@@ -62,6 +62,11 @@ func Title(format string, args ...interface{}) {
 	DefaultLogger.Title(format, args...)
 }
 
+// Question 输出问题日志
+func Question(format string, args ...interface{}) {
+	DefaultLogger.Question(format, args...)
+}
+
 // Info 输出信息日志
 func (l *Logger) Info(format string, args ...interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
@@ -88,6 +93,12 @@ func (l *Logger) Error(format string, args ...interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	message := fmt.Sprintf(format, args...)
 	l.errorColor.Printf("✗ [%s] %s\n", timestamp, message)
+}
+
+// Question 输出问题日志
+func (l *Logger) Question(format string, args ...interface{}) {
+	message := fmt.Sprintf(format, args...)
+	l.warningColor.Printf("? %s", message)
 }
 
 // Title 输出标题日志

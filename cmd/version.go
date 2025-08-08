@@ -2,23 +2,31 @@ package cmd
 
 import (
 	"fmt"
-
+	"app-manager-go-v1/internal/config"
 	"github.com/spf13/cobra"
 )
 
-// 版本信息变量
+// 版本信息
 var (
-	Version = "v1.0.0"
-	Date    = "2024-12-19"
+	Version     = "v1.0.0"
+	Date        = "unknown"
+	Author      = "unknown"
+	Description = "A Java application management tool"
 )
 
 // SetVersionInfo 设置版本信息
-func SetVersionInfo(version, date string) {
+func SetVersionInfo(version, date, author, description string) {
 	if version != "" {
 		Version = version
 	}
 	if date != "" {
 		Date = date
+	}
+	if author != "" {
+		Author = author
+	}
+	if description != "" {
+		Description = description
 	}
 }
 
@@ -26,14 +34,12 @@ func SetVersionInfo(version, date string) {
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "显示版本信息",
-	Long:  `显示app-manager的版本信息和构建日期。`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("app-manager version %s\n", Version)
-		fmt.Printf("Build date: %s\n", Date)
+		programName := config.GetProgramName()
+		fmt.Printf("%s version %s\n", programName, Version)
+		fmt.Printf("Description: %s\n", Description)
+		fmt.Printf("Author: %s\n", Author)
+		fmt.Printf("Build Date: %s\n", Date)
 		fmt.Printf("Go version: %s\n", "go1.21+")
-		fmt.Printf("Platform: %s\n", "linux")
-		fmt.Println("")
-		fmt.Println("Java应用管理工具")
-		fmt.Println("Copyright (c) 2024")
 	},
 }

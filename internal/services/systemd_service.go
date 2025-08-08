@@ -29,13 +29,12 @@ Description={{.Description}}
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User={{.User}}
 Group={{.Group}}
 WorkingDirectory={{.WorkingDirectory}}
 ExecStart={{.ExecStart}}
 ExecStop={{.ExecStop}}
-PIDFile={{.PIDFile}}
 Restart={{.Restart}}
 RestartSec={{.RestartSec}}
 TimeoutStartSec={{.TimeoutStartSec}}
@@ -57,7 +56,6 @@ type ServiceConfig struct {
 	WorkingDirectory string
 	ExecStart        string
 	ExecStop         string
-	PIDFile          string
 	Restart          string
 	RestartSec       string
 	TimeoutStartSec  string
@@ -186,18 +184,17 @@ func (s *SystemdService) CreateAllServices() error {
 
 // generateUnifiedServiceConfigWithDescription 生成带描述的统一服务配置
 func (s *SystemdService) generateUnifiedServiceConfigWithDescription(serviceName, description string) *ServiceConfig {
-	pidFile := filepath.Join(config.GetPidsDir(), serviceName+".pid")
 	
 	// 动态获取当前程序路径
 	executablePath, err := os.Executable()
 	if err != nil {
 		// 如果获取失败，使用默认路径
 		projectRoot := config.GetProjectRoot()
-		executablePath = filepath.Join(projectRoot, "app-manager-go-v1")
+		executablePath = filepath.Join(projectRoot, config.GetProgramName())
 	}
 	
 	// 构建启动和停止命令
-	execStart := fmt.Sprintf("%s start", executablePath)
+	execStart := fmt.Sprintf("%s start --daemon", executablePath)
 	execStop := fmt.Sprintf("%s stop", executablePath)
 	
 	// 获取当前用户
@@ -223,7 +220,6 @@ func (s *SystemdService) generateUnifiedServiceConfigWithDescription(serviceName
 		WorkingDirectory: config.GetProjectRoot(),
 		ExecStart:        execStart,
 		ExecStop:         execStop,
-		PIDFile:          pidFile,
 		Restart:          s.config.Systemd.ServiceRestart,
 		RestartSec:       fmt.Sprintf("%d", s.config.Systemd.ServiceRestartSec),
 		TimeoutStartSec:  fmt.Sprintf("%d", s.config.Systemd.ServiceTimeoutStartSec),
@@ -243,18 +239,17 @@ func (s *SystemdService) generateServiceConfigWithDescription(appName, appPath, 
 
 // generateUnifiedServiceConfig 生成统一的app-manager服务配置
 func (s *SystemdService) generateUnifiedServiceConfig(serviceName string) *ServiceConfig {
-	pidFile := filepath.Join(config.GetPidsDir(), serviceName+".pid")
 	
 	// 动态获取当前程序路径
 	executablePath, err := os.Executable()
 	if err != nil {
 		// 如果获取失败，使用默认路径
 		projectRoot := config.GetProjectRoot()
-		executablePath = filepath.Join(projectRoot, "app-manager-go-v1")
+		executablePath = filepath.Join(projectRoot, config.GetProgramName())
 	}
 	
 	// 构建启动和停止命令
-	execStart := fmt.Sprintf("%s start", executablePath)
+	execStart := fmt.Sprintf("%s start --daemon", executablePath)
 	execStop := fmt.Sprintf("%s stop", executablePath)
 	
 	// 获取当前用户
@@ -280,7 +275,6 @@ func (s *SystemdService) generateUnifiedServiceConfig(serviceName string) *Servi
 		WorkingDirectory: config.GetProjectRoot(),
 		ExecStart:        execStart,
 		ExecStop:         execStop,
-		PIDFile:          pidFile,
 		Restart:          s.config.Systemd.ServiceRestart,
 		RestartSec:       fmt.Sprintf("%d", s.config.Systemd.ServiceRestartSec),
 		TimeoutStartSec:  fmt.Sprintf("%d", s.config.Systemd.ServiceTimeoutStartSec),
@@ -292,7 +286,6 @@ func (s *SystemdService) generateUnifiedServiceConfig(serviceName string) *Servi
 // generateServiceConfig 生成服务配置（保留用于兼容性）
 func (s *SystemdService) generateServiceConfig(appName, appPath string) *ServiceConfig {
 	backendDir := config.GetBackendDir()
-	pidFile := filepath.Join(config.GetPidsDir(), appName+".pid")
 	
 	// 构建启动命令
 	javaPath := s.config.Global.JavaPath
@@ -332,7 +325,6 @@ func (s *SystemdService) generateServiceConfig(appName, appPath string) *Service
 		WorkingDirectory: backendDir,
 		ExecStart:        execStart,
 		ExecStop:         execStop,
-		PIDFile:          pidFile,
 		Restart:          s.config.Systemd.ServiceRestart,
 		RestartSec:       fmt.Sprintf("%d", s.config.Systemd.ServiceRestartSec),
 		TimeoutStartSec:  fmt.Sprintf("%d", s.config.Systemd.ServiceTimeoutStartSec),
@@ -399,7 +391,7 @@ func (s *SystemdService) printServiceInstructions(serviceName string) {
 	if err != nil {
 		// 如果获取失败，使用默认路径
 		projectRoot := config.GetProjectRoot()
-		executablePath = filepath.Join(projectRoot, "app-manager-go-v1")
+		executablePath = filepath.Join(projectRoot, config.GetProgramName())
 	}
 	logger.Printf("     服务依赖的程序文件：\033[37m%s\033[0m\n", executablePath)
 	logger.Printf("     删除此文件将导致systemd服务无法正常工作！\n")

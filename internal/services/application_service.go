@@ -51,6 +51,16 @@ func (s *ApplicationService) DiscoverApplications() (models.ApplicationList, err
 			// 设置日志文件路径
 			app.LogFile = filepath.Join(config.GetLogsDir(), app.Name+".log")
 
+			// 从配置中加载应用的优先级和延迟
+			if priorityConfig, ok := s.config.Applications[app.Name]; ok {
+				app.Priority = priorityConfig.Priority
+				app.StartupDelay = priorityConfig.StartupDelay
+			} else {
+				// 如果未配置，则使用默认优先级
+				app.Priority = 999
+				app.StartupDelay = 0
+			}
+
 			// 加载PID信息
 			pidFile := filepath.Join(config.GetPidsDir(), app.Name+".pid")
 			if err := app.LoadPID(pidFile); err != nil {
@@ -164,7 +174,7 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	// 设置为运行状态
 	app.Status = models.StatusRunning
 	logger.Success("应用启动命令已执行，PID: %d", app.PID)
-	logger.Info("使用 'app-manager status' 查看应用状态")
+	logger.Info("使用 '%s status' 查看应用状态", config.GetProgramName())
 	
 	return nil
 }

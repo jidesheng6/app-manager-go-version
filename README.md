@@ -2,6 +2,8 @@
 
 一个用于管理Java应用程序的命令行工具，基于Go语言开发，是原Shell脚本版本的现代化重写。
 
+![App Manager Screenshot](https://i.imgur.com/example.png) <!-- 占位符，稍后替换为真实URL -->
+
 ## 功能特性
 
 ### 🚀 应用生命周期管理
@@ -115,7 +117,7 @@ app-manager restart myapp
 | `start` | 启动应用 | `app-manager start myapp` |
 | `stop` | 停止应用 | `app-manager stop myapp` |
 | `restart` | 重启应用 | `app-manager restart myapp` |
-| `status` | 查看应用状态 | `app-manager status` |
+| `status` | 查看应用状态（支持交互模式） | `app-manager status` |
 | `logs` | 查看应用日志 | `app-manager logs myapp -f` |
 
 ### 高级命令
@@ -141,31 +143,44 @@ app-manager restart myapp
 
 ## 配置文件
 
-配置文件`.app-manager.yaml`包含以下主要配置项：
+配置文件`.app-manager.ini`包含以下主要配置项：
 
-```yaml
-global:
-  project_root: "/path/to/project"
-  java_path: "java"
+```ini
+[global]
+project_root = "/path/to/project"
+java_path = "java"
 
-application:
-  app_type: "jar"  # jar, war, mixed
-  jvm_params: "-Xms512m -Xmx1024m"
+[nacos]
+nacos_server = ""
+nacos_namespace = ""
 
-backup:
-  backup_prefix: "backup"
-  backup_retention_days: 7
+[application]
+app_type = "mixed" ; jar, war, mixed
+jvm_params = "-Xms512m -Xmx1024m"
+startup_delay = 0
+default_priority = 100
 
-logrotate:
-  logrotate_size: "10MB"
-  logrotate_cycle: "daily"
-  logrotate_rotate: 5
+[applications]
+; 单个应用的特殊配置，格式为：appName.priority 和 appName.delay
+; 例如:
+; my-app-1.priority = 10
+; my-app-1.delay = 5
+; my-app-2.priority = 20
 
-systemd:
-  service_restart: "always"
-  service_restart_sec: "10"
-  service_timeout_start_sec: "60"
-  service_timeout_stop_sec: "30"
+[backup]
+backup_prefix = "backup"
+backup_retention_days = 7
+
+[logrotate]
+logrotate_size = "10MB"
+logrotate_cycle = "daily"
+logrotate_rotate = 5
+
+[systemd]
+service_restart = "always"
+service_restart_sec = 10
+service_timeout_start_sec = 60
+service_timeout_stop_sec = 30
 ```
 
 ## 使用场景

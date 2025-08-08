@@ -6,18 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"strconv"
 
 	"github.com/spf13/viper"
 )
 
 // Config 应用配置结构
 type Config struct {
-	Global      GlobalConfig      `mapstructure:"global" ini:"global"`
-	Nacos       NacosConfig       `mapstructure:"nacos" ini:"nacos"`
-	Application ApplicationConfig `mapstructure:"application" ini:"application"`
-	Backup      BackupConfig      `mapstructure:"backup" ini:"backup"`
-	Logrotate   LogrotateConfig   `mapstructure:"logrotate" ini:"logrotate"`
-	Systemd     SystemdConfig     `mapstructure:"systemd" ini:"systemd"`
+	Global       GlobalConfig            `mapstructure:"global" ini:"global"`
+	Nacos        NacosConfig             `mapstructure:"nacos" ini:"nacos"`
+	Application  ApplicationConfig       `mapstructure:"application" ini:"application"`
+	Applications map[string]AppPriority  `mapstructure:"applications" ini:"applications"` // 应用优先级配置
+	Backup       BackupConfig            `mapstructure:"backup" ini:"backup"`
+	Logrotate    LogrotateConfig         `mapstructure:"logrotate" ini:"logrotate"`
+	Systemd      SystemdConfig           `mapstructure:"systemd" ini:"systemd"`
 }
 
 // GlobalConfig 全局配置
@@ -34,8 +36,19 @@ type NacosConfig struct {
 
 // ApplicationConfig 应用配置
 type ApplicationConfig struct {
-	AppType   string `mapstructure:"app_type" ini:"app_type"`
-	JVMParams string `mapstructure:"jvm_params" ini:"jvm_params"`
+	AppType         string `mapstructure:"app_type" ini:"app_type"`
+	JVMParams       string `mapstructure:"jvm_params" ini:"jvm_params"`
+	StartupDelay    int    `mapstructure:"startup_delay" ini:"startup_delay"`         // 启动间隔时间(秒)
+	DefaultPriority int    `mapstructure:"default_priority" ini:"default_priority"`   // 默认优先级
+}
+
+// ApplicationsConfig 应用优先级配置
+type ApplicationsConfig map[string]int
+
+// AppPriority 单个应用的优先级配置
+type AppPriority struct {
+	Priority     int `mapstructure:"priority"`
+	StartupDelay int `mapstructure:"startup_delay"`
 }
 
 // BackupConfig 备份配置
@@ -122,10 +135,48 @@ func LoadConfig(configPath string) error {
 		return fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
+	// 手动加载启动优先级
+	loadStartupPriority()
+
 	// 清理配置值中的引号
 	cleanConfigValues()
 
 	return nil
+}
+
+// loadStartupPriority 手动加载启动优先级
+func loadStartupPriority() {
+	prioritySettings := viper.GetStringMap("startup_priority")
+	if AppConfig.Applications == nil {
+		AppConfig.Applications = make(map[string]AppPriority)
+	}
+
+	for key, value := range prioritySettings {
+		parts := strings.Split(key, ".")
+		if len(parts) != 2 {
+			continue
+		}
+		appName, prop := parts[0], parts[1]
+
+		// 获取或创建应用优先级配置
+		appPriority, ok := AppConfig.Applications[appName]
+		if !ok {
+			appPriority = AppPriority{}
+		}
+
+		// 解析并设置值
+		switch prop {
+		case "priority":
+			if p, err := strconv.Atoi(fmt.Sprintf("%v", value)); err == nil {
+				appPriority.Priority = p
+			}
+		case "delay":
+			if d, err := strconv.Atoi(fmt.Sprintf("%v", value)); err == nil {
+				appPriority.StartupDelay = d
+			}
+		}
+		AppConfig.Applications[appName] = appPriority
+	}
 }
 
 // cleanConfigValues 清理配置值中的引号
@@ -189,14 +240,10 @@ func SaveConfig(configPath string) error {
 
 // findConfigFile 查找配置文件
 func findConfigFile() string {
-	// 获取当前工作目录
-	pwd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
+	searchDirs := getSearchDirs()
 
 	// 获取程序名称
-	programName := getProgramName()
+	programName := GetProgramName()
 
 	// 可能的配置文件名
 	configNames := []string{
@@ -209,41 +256,6 @@ func findConfigFile() string {
 		".app-manager.yml",
 		"app-manager.yaml",
 		"app-manager.yml",
-	}
-
-	// 搜索策略：
-	// 1. 当前目录
-	// 2. 当前目录的 project_backend 子目录
-	// 3. 父目录及其 project_backend 子目录
-	// 4. 如果当前目录是 project_backend，则搜索当前目录和父目录
-	
-	searchDirs := []string{}
-	
-	// 添加当前目录
-	searchDirs = append(searchDirs, pwd)
-	
-	// 如果当前目录是 project_backend，优先搜索当前目录
-	if filepath.Base(pwd) == "project_backend" {
-		// 当前目录是 project_backend，也搜索父目录
-		parentDir := filepath.Dir(pwd)
-		searchDirs = append(searchDirs, parentDir)
-	} else {
-		// 当前目录不是 project_backend，搜索 project_backend 子目录
-		backendDir := filepath.Join(pwd, "project_backend")
-		if _, err := os.Stat(backendDir); err == nil {
-			searchDirs = append(searchDirs, backendDir)
-		}
-		
-		// 向上搜索父目录
-		for dir := filepath.Dir(pwd); dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-			searchDirs = append(searchDirs, dir)
-			
-			// 也搜索父目录的 project_backend 子目录
-			parentBackendDir := filepath.Join(dir, "project_backend")
-			if _, err := os.Stat(parentBackendDir); err == nil {
-				searchDirs = append(searchDirs, parentBackendDir)
-			}
-		}
 	}
 
 	// 在所有搜索目录中查找配置文件
@@ -259,16 +271,72 @@ func findConfigFile() string {
 	return ""
 }
 
-// getProgramName 获取程序名称
-func getProgramName() string {
-	programPath := os.Args[0]
-	programName := filepath.Base(programPath)
+// getSearchDirs 获取所有需要搜索的目录列表，已去重
+func getSearchDirs() []string {
+	// 使用 map 来自动去重
+	uniqueDirs := make(map[string]struct{})
 	
+	// 1. 添加可执行文件所在目录及其 project_backend 子目录
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		uniqueDirs[exeDir] = struct{}{}
+		
+		// 检查可执行文件目录下的 project_backend 子目录
+		exeBackendDir := filepath.Join(exeDir, "project_backend")
+		if _, err := os.Stat(exeBackendDir); err == nil {
+			uniqueDirs[exeBackendDir] = struct{}{}
+		}
+	}
+
+	// 2. 添加当前工作目录及其相关目录
+	if pwd, err := os.Getwd(); err == nil {
+		uniqueDirs[pwd] = struct{}{}
+
+		// 检查 project_backend 子目录
+		backendDir := filepath.Join(pwd, "project_backend")
+		if _, err := os.Stat(backendDir); err == nil {
+			uniqueDirs[backendDir] = struct{}{}
+		}
+
+		// 如果当前在 project_backend，也添加其父目录
+		if filepath.Base(pwd) == "project_backend" {
+			uniqueDirs[filepath.Dir(pwd)] = struct{}{}
+		}
+
+		// 向上递归搜索父目录
+		for dir := pwd; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
+			uniqueDirs[dir] = struct{}{}
+			// 检查父目录下的 project_backend
+			parentBackendDir := filepath.Join(dir, "project_backend")
+			if _, err := os.Stat(parentBackendDir); err == nil {
+				uniqueDirs[parentBackendDir] = struct{}{}
+			}
+		}
+	}
+	
+	// 将 map 的键转换为切片
+	dirs := make([]string, 0, len(uniqueDirs))
+	for dir := range uniqueDirs {
+		dirs = append(dirs, dir)
+	}
+	
+	return dirs
+}
+
+
+// GetProgramName 获取程序名称
+func GetProgramName() string {
+	programPath, err := os.Executable()
+	if err != nil {
+		return "app-manager" // Fallback
+	}
+	programName := filepath.Base(programPath)
+
 	// 移除扩展名
 	if ext := filepath.Ext(programName); ext != "" {
 		programName = strings.TrimSuffix(programName, ext)
 	}
-	
+
 	return programName
 }
 
@@ -379,6 +447,11 @@ func GetPidsDir() string {
 	return filepath.Join(GetBackendDir(), "pids")
 }
 
+// GetRotateLogsDir 获取日志轮转目录
+func GetRotateLogsDir() string {
+	return filepath.Join(GetBackendDir(), "rotate_logs")
+}
+
 // GetConfigDir 获取配置目录
 func GetConfigDir() string {
 	return filepath.Join(GetBackendDir(), "config")
@@ -426,13 +499,8 @@ func GetOptimizedJVMParams() string {
 
 // GetConfigFileName 获取配置文件名称
 func GetConfigFileName() string {
-	programName := getProgramName()
+	programName := GetProgramName()
 	return "." + programName + ".ini"
-}
-
-// GetProgramName 获取程序名称（公开函数）
-func GetProgramName() string {
-	return getProgramName()
 }
 
 // IsProjectInitialized 检查项目是否已初始化

@@ -75,3 +75,13 @@ project_*/
 .tasks/
 test-app/**/*
 debug.txt
+
+# IDE-specific
+.idea/
+.vscode/
+
+# Test data
+test-app/
+/testdata/
+/test-results/
+/coverage.out
