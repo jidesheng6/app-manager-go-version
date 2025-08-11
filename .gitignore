@@ -81,6 +81,7 @@ debug.txt
 .vscode/
 
 # Test data
+test-app
 test-app/
 /testdata/
 /test-results/

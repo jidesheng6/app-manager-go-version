@@ -132,8 +132,8 @@ func (ls *LogService) generateLogrotateConfig(projectRoot, description string) s
 	configBuilder.WriteString("# App Manager 统一日志轮转配置\n")
 	configBuilder.WriteString(fmt.Sprintf("# 项目路径: %s\n\n", projectRoot))
 
-	// 为 .log 和 .out 文件创建统一的配置块
-	configBuilder.WriteString(fmt.Sprintf("%s/*.log %s/*.out {\n", logsDir, logsDir))
+	// 为 .log 文件创建配置块
+	configBuilder.WriteString(fmt.Sprintf("%s/*.log {\n", logsDir))
 	configBuilder.WriteString(fmt.Sprintf("    %s\n", ls.config.Logrotate.LogrotateCycle))
 	configBuilder.WriteString("    missingok\n")
 	configBuilder.WriteString(fmt.Sprintf("    rotate %d\n", ls.config.Logrotate.LogrotateRotate))

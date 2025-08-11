@@ -98,7 +98,7 @@ func Init() {
 			BackupRetentionDays: 30,
 		},
 		Logrotate: LogrotateConfig{
-			LogrotateSize:   "30m",
+			LogrotateSize:   "30M",
 			LogrotateCycle:  "weekly",
 			LogrotateRotate: 30,
 		},

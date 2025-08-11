@@ -357,12 +357,12 @@ backup_retention_days={{BACKUP_RETENTION_DAYS}}`
 func (s *ProjectService) getLogrotateConfigTemplate() string {
 	return `[logrotate]
 
-# 日志轮转大小 [选填，默认：30m]
+# 日志轮转大小 [选填，默认：30M]
 # 说明：单个日志文件达到此大小时进行轮转
 # 格式：数字+单位(k/m/g)，不区分大小写
 # 示例：
 #   10k   # 10KB
-#   30m   # 30MB
+#   30M   # 30MB
 #   1g    # 1GB
 #   500M  # 500MB
 # 注意：不需要引号包围
