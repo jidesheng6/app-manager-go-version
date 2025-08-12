@@ -54,8 +54,8 @@ var initCmd = &cobra.Command{
 		logger.Title("项目初始化")
 		logger.Info("初始化路径: %s", absPath)
 		
-		// 创建项目服务
-		projectService := services.NewProjectService()
+		// 创建项目服务（使用默认配置，不受现有配置文件影响）
+		projectService := services.NewProjectServiceWithDefaults()
 		
 		// 执行初始化
 		if err := projectService.InitProject(absPath); err != nil {

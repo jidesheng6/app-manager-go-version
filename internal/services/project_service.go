@@ -26,6 +26,16 @@ func NewProjectService() *ProjectService {
 	}
 }
 
+// NewProjectServiceWithDefaults 创建使用默认配置的项目服务实例
+// 此方法专门用于 init 命令，确保使用纯净的默认配置
+func NewProjectServiceWithDefaults() *ProjectService {
+	generator := config.NewDefaultConfigGenerator()
+	defaultConfig := generator.GenerateDefaultConfig()
+	return &ProjectService{
+		config: defaultConfig,
+	}
+}
+
 // InitProject 初始化项目
 func (s *ProjectService) InitProject(projectPath string) error {
 	if projectPath == "" {
@@ -422,7 +432,7 @@ service_restart="{{SERVICE_RESTART}}"
 # 注意：不需要引号包围
 service_restart_sec={{SERVICE_RESTART_SEC}}
 
-# 服务启动超时时间 [选填，默认：60]
+# 服务启动超时时间 [选填，默认：0]
 # 说明：服务启动超时时间，超过此时间认为启动失败
 # 格式：正整数（秒），0表示使用系统默认值
 # 示例：
@@ -433,7 +443,7 @@ service_restart_sec={{SERVICE_RESTART_SEC}}
 # 注意：不需要引号包围
 service_timeout_start_sec={{SERVICE_TIMEOUT_START_SEC}}
 
-# 服务停止超时时间 [选填，默认：30]
+# 服务停止超时时间 [选填，默认：0]
 # 说明：服务停止超时时间，超过此时间强制杀死进程
 # 格式：正整数（秒），0表示使用系统默认值
 # 示例：
@@ -443,6 +453,90 @@ service_timeout_start_sec={{SERVICE_TIMEOUT_START_SEC}}
 #   0     # 使用系统默认值
 # 注意：不需要引号包围
 service_timeout_stop_sec={{SERVICE_TIMEOUT_STOP_SEC}}`
+}
+
+// getMonitoringConfigTemplate 获取监控配置模板
+func (s *ProjectService) getMonitoringConfigTemplate() string {
+	return `[monitoring]
+
+# 是否启用磁盘I/O监控 [选填，默认：true]
+# 说明：是否在status命令中显示磁盘读写速率信息
+# 可选值：true, false
+# 示例：
+#   true    # 启用磁盘I/O监控
+#   false   # 禁用磁盘I/O监控
+# 注意：不需要引号包围
+enable_disk_io=true
+
+# 是否启用网络监控 [选填，默认：true]
+# 说明：是否在status命令中显示网络流量统计信息
+# 可选值：true, false
+# 示例：
+#   true    # 启用网络监控
+#   false   # 禁用网络监控
+# 注意：不需要引号包围
+enable_network=true
+
+# 是否启用端口连接监控 [选填，默认：true]
+# 说明：是否在status命令中显示端口连接状态信息
+# 可选值：true, false
+# 示例：
+#   true    # 启用端口连接监控
+#   false   # 禁用端口连接监控
+# 注意：不需要引号包围
+enable_port_stats=true
+
+# 监控端口列表 [选填]
+# 说明：指定需要独立监控的端口列表，多个端口用逗号分隔
+# 格式：端口号列表，用英文逗号分隔
+# 示例：
+#   monitor_ports=80,443,8080,8081    # 监控多个端口
+#   monitor_ports=80                  # 监控单个端口
+#   monitor_ports=                    # 不监控特定端口
+# 注意：
+#   - 端口号范围：1-65535
+#   - 多个端口用英文逗号分隔，不要有空格
+#   - 不需要引号包围
+#   - 留空表示不监控特定端口
+monitor_ports=
+
+# OpenResty/Nginx前端端口 [可选功能]
+# 说明：如果您使用OpenResty或Nginx作为前端代理，可以配置此端口用于统计在线人数
+# 格式：端口号
+# 示例：
+#   openresty_port=80     # HTTP端口
+#   openresty_port=443    # HTTPS端口
+#   openresty_port=8080   # 自定义端口
+# 注意：
+#   - 如果您不使用OpenResty/Nginx，请保持此项为空
+#   - 端口号范围：1-65535
+#   - 不需要引号包围
+#   - 留空表示不启用此功能
+openresty_port=
+
+# 监控数据采样间隔 [选填，默认：5]
+# 说明：监控数据采样的时间间隔（秒）
+# 格式：正整数
+# 示例：
+#   1     # 1秒采样，高精度监控
+#   5     # 5秒采样，标准配置
+#   10    # 10秒采样，低频监控
+# 注意：
+#   - 间隔越小，监控精度越高，但系统开销也越大
+#   - 不需要引号包围
+sample_interval=5
+
+# 监控数据保留时间 [选填，默认：300]
+# 说明：监控数据在内存中的保留时间（秒）
+# 格式：正整数
+# 示例：
+#   60    # 保留1分钟数据
+#   300   # 保留5分钟数据
+#   600   # 保留10分钟数据
+# 注意：
+#   - 保留时间越长，内存占用越大
+#   - 不需要引号包围
+retention_time=300`
 }
 
 // getDatabaseDmConfigTemplate 获取达梦数据库备份配置模板
@@ -760,6 +854,7 @@ func (s *ProjectService) getDetailedConfigTemplate() (string, error) {
 	sb.WriteString(s.getConfigTemplateSection("Nacos配置中心", s.getNacosConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("应用启动优先级配置", s.getStartupPriorityConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("应用配置", s.getApplicationConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("监控配置", s.getMonitoringConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("备份配置", s.getBackupConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("日志轮转配置", s.getLogrotateConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("系统服务配置", s.getSystemdConfigTemplate()))

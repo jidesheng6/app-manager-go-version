@@ -120,7 +120,7 @@ func showSingleApplicationStatus(appService *services.ApplicationService, appNam
 
 	// 显示详细状态
 	logger.Title("应用状态详情")
-	showDetailedStatus(status)
+	showDetailedStatus(status, app)
 
 	return nil
 }
@@ -149,11 +149,16 @@ func showAllApplicationsStatus(appService *services.ApplicationService) error {
 
 			status := appService.GetApplicationStatus(app)
 
-			showDetailedStatus(status)
+			showDetailedStatus(status, app)
 		}
 	} else {
 		// 显示表格状态
 		showTableStatus(appService, apps)
+	}
+
+	// 显示端口监控表格
+	if err := showPortConnectionsTable(appService); err != nil {
+		logger.Warning("显示端口监控表格失败: %v", err)
 	}
 
 	// 显示统计信息
@@ -181,7 +186,7 @@ func showSystemInfo() {
 }
 
 // showDetailedStatus 显示详细状态
-func showDetailedStatus(status *models.ApplicationStatus) {
+func showDetailedStatus(status *models.ApplicationStatus, app *models.Application) {
 	logger.Printf("应用名称: \033[33m%s\033[0m\n", status.Name)
 	logger.Printf("文件路径: %s\n", status.FilePath)
 
@@ -213,6 +218,45 @@ func showDetailedStatus(status *models.ApplicationStatus) {
 		logger.Printf("端口: \033[36m%s\033[0m\n", status.Ports)
 	}
 
+	// 显示监控信息（如果可用）
+	if app != nil {
+		procInfo := app.GetProcessInfo()
+		
+		// 磁盘 I/O 信息
+		if procInfo.DiskReadBytes > 0 || procInfo.DiskWriteBytes > 0 {
+			logger.Printf("磁盘 I/O: 读取 %s, 写入 %s\n", 
+				formatBytes(int64(procInfo.DiskReadBytes)), 
+				formatBytes(int64(procInfo.DiskWriteBytes)))
+		}
+		
+		if procInfo.DiskReadRate != "" || procInfo.DiskWriteRate != "" {
+			logger.Printf("磁盘速率: 读取 %s, 写入 %s\n", 
+				getStringOrDefault(procInfo.DiskReadRate, "0 B/s"), 
+				getStringOrDefault(procInfo.DiskWriteRate, "0 B/s"))
+		}
+		
+		// 网络统计信息
+		if procInfo.NetworkRxBytes > 0 || procInfo.NetworkTxBytes > 0 {
+			logger.Printf("网络流量: 接收 %s, 发送 %s\n", 
+				formatBytes(int64(procInfo.NetworkRxBytes)), 
+				formatBytes(int64(procInfo.NetworkTxBytes)))
+		}
+		
+		if procInfo.NetworkRxRate != "" || procInfo.NetworkTxRate != "" {
+			logger.Printf("网络速率: 接收 %s, 发送 %s\n", 
+				getStringOrDefault(procInfo.NetworkRxRate, "0 B/s"), 
+				getStringOrDefault(procInfo.NetworkTxRate, "0 B/s"))
+		}
+		
+		// 端口连接状态
+		if len(procInfo.PortConnections) > 0 {
+			logger.Printf("端口连接状态:\n")
+			for _, conn := range procInfo.PortConnections {
+				logger.Printf("  %s\n", conn)
+			}
+		}
+	}
+
 	if status.LogFile != "" {
 		if _, err := os.Stat(status.LogFile); err == nil {
 			logger.Printf("日志文件: \033[32m%s\033[0m\n", status.LogFile)
@@ -234,13 +278,13 @@ func showDetailedStatus(status *models.ApplicationStatus) {
 
 // showTableStatus 显示表格状态
 func showTableStatus(appService *services.ApplicationService, apps models.ApplicationList) error {
-	// 1. 批量更新所有进程信息以提高性能
+	// 1. 批量更新所有进程信息以提高性能（包含监控数据）
 	logger.Info("[调试] 步骤1/2: 开始通过 'ps' 命令批量获取所有进程信息...")
-	models.BatchUpdateProcessInfo(apps)
+	appService.BatchUpdateProcessInfoWithMonitoring(apps)
 	logger.Info("[调试] 步骤1/2: 批量获取进程信息完成。")
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU", "内存", "使用内存", "端口"})
+	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU", "内存", "使用内存", "磁盘读", "磁盘写", "网络收", "网络发", "端口"})
 	table.SetBorder(true)
 	table.SetRowLine(false) // 减少行线以降低表格高度
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
@@ -251,6 +295,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 
 	// 设置颜色
 	headerColors := []tablewriter.Colors{
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
 		{tablewriter.Bold, tablewriter.FgCyanColor},
 		{tablewriter.Bold, tablewriter.FgCyanColor},
 		{tablewriter.Bold, tablewriter.FgCyanColor},
@@ -314,6 +362,29 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			memorySizeStr = status.MemorySize
 		}
 
+		// 获取进程信息以显示监控数据
+		procInfo := app.GetProcessInfo()
+		
+		// 磁盘 I/O 信息
+		diskReadStr := "--"
+		diskWriteStr := "--"
+		if procInfo.DiskReadRate != "" {
+			diskReadStr = procInfo.DiskReadRate
+		}
+		if procInfo.DiskWriteRate != "" {
+			diskWriteStr = procInfo.DiskWriteRate
+		}
+		
+		// 网络统计信息
+		networkRxStr := "--"
+		networkTxStr := "--"
+		if procInfo.NetworkRxRate != "" {
+			networkRxStr = procInfo.NetworkRxRate
+		}
+		if procInfo.NetworkTxRate != "" {
+			networkTxStr = procInfo.NetworkTxRate
+		}
+
 		// 添加行
 		row := []string{
 			fmt.Sprintf("%d", i+1),
@@ -324,6 +395,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			cpuStr,
 			memoryStr,
 			memorySizeStr,
+			diskReadStr,
+			diskWriteStr,
+			networkRxStr,
+			networkTxStr,
 			portsStr,
 		}
 
@@ -367,11 +442,182 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		avgMemStr,
 		totalMemSizeStr,
 		"-",
+		"-",
+		"-",
+		"-",
+		"-",
 	}
 
 	// 设置合计行颜色
 	summaryColors := []tablewriter.Colors{
 		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+		{tablewriter.Bold, tablewriter.FgYellowColor},
+	}
+
+	table.Rich(summaryRow, summaryColors)
+	table.Render()
+
+	return nil
+}
+
+// showPortConnectionsTable 显示独立的端口监控表格
+func showPortConnectionsTable(appService *services.ApplicationService) error {
+	// 检查是否启用端口监控
+	if !config.AppConfig.Monitoring.EnablePortStats {
+		return nil
+	}
+
+	// 获取配置的监控端口列表
+	monitorPorts := config.AppConfig.Monitoring.MonitorPorts
+	openRestyPort := config.AppConfig.Monitoring.OpenRestyPort
+
+	// 如果没有配置任何端口，则不显示表格
+	if monitorPorts == "" && openRestyPort == 0 {
+		return nil
+	}
+
+	logger.Println("")
+	logger.Title("端口监控状态")
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"端口", "协议", "状态", "连接数", "类型", "说明"})
+	table.SetBorder(true)
+	table.SetRowLine(false)
+	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table.SetAutoWrapText(false)
+	table.SetAutoFormatHeaders(true)
+	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	table.SetColWidth(80)
+
+	// 设置表头颜色
+	headerColors := []tablewriter.Colors{
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+		{tablewriter.Bold, tablewriter.FgCyanColor},
+	}
+	table.SetHeaderColor(headerColors...)
+
+	var totalConnections int
+
+	// 处理配置的监控端口列表
+	if monitorPorts != "" {
+		ports := strings.Split(monitorPorts, ",")
+		for _, portStr := range ports {
+			portStr = strings.TrimSpace(portStr)
+			if portStr == "" {
+				continue
+			}
+
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				logger.Warning("无效的端口号: %s", portStr)
+				continue
+			}
+
+			// 获取端口连接统计
+			connections, err := appService.GetPortConnectionStats(port)
+			if err != nil {
+				logger.Warning("获取端口 %d 连接统计失败: %v", port, err)
+				continue
+			}
+
+			status := "关闭"
+			statusColor := tablewriter.Colors{tablewriter.FgRedColor}
+			connCount := 0
+			if connections != nil && connections.Connections > 0 {
+				status = "监听"
+				statusColor = tablewriter.Colors{tablewriter.FgGreenColor}
+				connCount = connections.Connections
+				totalConnections += connections.Connections
+			}
+
+			row := []string{
+				fmt.Sprintf("%d", port),
+				"TCP",
+				status,
+				fmt.Sprintf("%d", connCount),
+				"通用",
+				"配置监控端口",
+			}
+
+			// 设置行颜色
+			rowColors := []tablewriter.Colors{
+				{},
+				{},
+				statusColor,
+				{},
+				{},
+				{},
+			}
+
+			table.Rich(row, rowColors)
+		}
+	}
+
+	// 处理OpenResty端口
+	if openRestyPort > 0 {
+		connections, err := appService.GetPortConnectionStats(openRestyPort)
+		if err != nil {
+			logger.Warning("获取OpenResty端口 %d 连接统计失败: %v", openRestyPort, err)
+		} else {
+			status := "关闭"
+			statusColor := tablewriter.Colors{tablewriter.FgRedColor}
+			connCount := 0
+			if connections != nil && connections.Connections > 0 {
+				status = "监听"
+				statusColor = tablewriter.Colors{tablewriter.FgGreenColor}
+				connCount = connections.Connections
+				totalConnections += connections.Connections
+			}
+
+			row := []string{
+				fmt.Sprintf("%d", openRestyPort),
+				"HTTP",
+				status,
+				fmt.Sprintf("%d", connCount),
+				"OpenResty",
+				"前端在线人数",
+			}
+
+			// 设置行颜色
+			rowColors := []tablewriter.Colors{
+				{},
+				{},
+				statusColor,
+				{},
+				{tablewriter.Bold, tablewriter.FgYellowColor},
+				{tablewriter.Bold, tablewriter.FgYellowColor},
+			}
+
+			table.Rich(row, rowColors)
+		}
+	}
+
+	// 添加合计行
+	summaryRow := []string{
+		"-",
+		"-",
+		"-",
+		fmt.Sprintf("总计: %d", totalConnections),
+		"-",
+		"端口监控统计",
+	}
+
+	summaryColors := []tablewriter.Colors{
 		{tablewriter.Bold, tablewriter.FgYellowColor},
 		{tablewriter.Bold, tablewriter.FgYellowColor},
 		{tablewriter.Bold, tablewriter.FgYellowColor},
@@ -547,6 +793,35 @@ func getTableStatusColor(status models.AppStatus) tablewriter.Colors {
 	default:
 		return tablewriter.Colors{tablewriter.Bold, tablewriter.FgWhiteColor}
 	}
+}
+
+// getStringOrDefault 返回字符串或默认值
+func getStringOrDefault(str, defaultValue string) string {
+	if str == "" {
+		return defaultValue
+	}
+	return str
+}
+
+// formatBytes 格式化字节数为可读格式
+func formatBytes(bytes int64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	size := float64(bytes)
+	unitIndex := 0
+	
+	for size >= 1024 && unitIndex < len(units)-1 {
+		size /= 1024
+		unitIndex++
+	}
+	
+	if unitIndex == 0 {
+		return fmt.Sprintf("%.0f %s", size, units[unitIndex])
+	}
+	return fmt.Sprintf("%.1f %s", size, units[unitIndex])
 }
 
 // showAllApplicationsStatusWithInteractive 显示所有应用状态并进入交互模式

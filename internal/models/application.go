@@ -222,6 +222,24 @@ type ProcessInfo struct {
 	MemoryKB      int64
 	MemoryPercent float64
 	Etimes        int64 // 进程已运行秒数
+	
+	// 新增磁盘 I/O 字段
+	DiskReadBytes  uint64 `json:"disk_read_bytes"`
+	DiskWriteBytes uint64 `json:"disk_write_bytes"`
+	DiskReadRate   string `json:"disk_read_rate"`   // 格式化显示，如 "1.2MB/s"
+	DiskWriteRate  string `json:"disk_write_rate"`  // 格式化显示，如 "800KB/s"
+	
+	// 新增网络字段（系统级别）
+	NetworkRxBytes uint64 `json:"network_rx_bytes"`
+	NetworkTxBytes uint64 `json:"network_tx_bytes"`
+	NetworkRxRate  string `json:"network_rx_rate"`  // 格式化显示
+	NetworkTxRate  string `json:"network_tx_rate"`  // 格式化显示
+	
+	// 网络数据来源标识
+	NetworkDataSource string `json:"network_data_source"` // "system-level", "process-specific", "unavailable"
+	
+	// 新增端口连接状态字段
+	PortConnections string `json:"port_connections"` // 格式: "80:5/10, 8080:2/5" (活跃/总连接数)
 }
 
 // GetProcessInfo 获取进程资源使用信息

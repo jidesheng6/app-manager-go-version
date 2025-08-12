@@ -17,6 +17,7 @@ type Config struct {
 	Nacos        NacosConfig             `mapstructure:"nacos" ini:"nacos"`
 	Application  ApplicationConfig       `mapstructure:"application" ini:"application"`
 	Applications map[string]AppPriority  `mapstructure:"applications" ini:"applications"` // 应用优先级配置
+	Monitoring   MonitoringConfig        `mapstructure:"monitoring" ini:"monitoring"`
 	Backup       BackupConfig            `mapstructure:"backup" ini:"backup"`
 	Logrotate    LogrotateConfig         `mapstructure:"logrotate" ini:"logrotate"`
 	Systemd      SystemdConfig           `mapstructure:"systemd" ini:"systemd"`
@@ -51,6 +52,19 @@ type AppPriority struct {
 	StartupDelay int `mapstructure:"startup_delay"`
 }
 
+// MonitoringConfig 监控配置
+type MonitoringConfig struct {
+	EnableDiskIO       bool    `mapstructure:"enable_disk_io" ini:"enable_disk_io"`
+	EnableNetwork      bool    `mapstructure:"enable_network" ini:"enable_network"`
+	EnablePortStats    bool    `mapstructure:"enable_port_stats" ini:"enable_port_stats"`
+	MonitorPorts       string  `mapstructure:"monitor_ports" ini:"monitor_ports"`             // 监控端口列表(逗号分隔)
+	OpenRestyPort      int     `mapstructure:"openresty_port" ini:"openresty_port"`           // OpenResty前端端口
+	SampleInterval     int     `mapstructure:"sample_interval" ini:"sample_interval"`         // 采样间隔(秒)
+	RetentionTime      int     `mapstructure:"retention_time" ini:"retention_time"`           // 数据保留时间(秒)
+	DiskIOThreshold    uint64  `mapstructure:"disk_io_threshold" ini:"disk_io_threshold"`     // 磁盘I/O阈值(字节/秒)
+	NetworkThreshold   uint64  `mapstructure:"network_threshold" ini:"network_threshold"`     // 网络阈值(字节/秒)
+}
+
 // BackupConfig 备份配置
 type BackupConfig struct {
 	BackupPrefix        string `mapstructure:"backup_prefix" ini:"backup_prefix"`
@@ -79,9 +93,17 @@ var (
 	ConfigFile string
 )
 
-// Init 初始化配置
-func Init() {
-	AppConfig = &Config{
+// DefaultConfigGenerator 默认配置生成器
+type DefaultConfigGenerator struct{}
+
+// NewDefaultConfigGenerator 创建新的默认配置生成器
+func NewDefaultConfigGenerator() *DefaultConfigGenerator {
+	return &DefaultConfigGenerator{}
+}
+
+// GenerateDefaultConfig 生成纯净的默认配置
+func (g *DefaultConfigGenerator) GenerateDefaultConfig() *Config {
+	return &Config{
 		Global: GlobalConfig{
 			JavaPath: "java",
 		},
@@ -92,6 +114,17 @@ func Init() {
 		Application: ApplicationConfig{
 			AppType:   "mixed",
 			JVMParams: "",
+		},
+		Monitoring: MonitoringConfig{
+			EnableDiskIO:     true,
+			EnableNetwork:    true,
+			EnablePortStats:  true,
+			MonitorPorts:     "",
+			OpenRestyPort:    0,
+			SampleInterval:   5,
+			RetentionTime:    300,
+			DiskIOThreshold:  1048576,  // 1MB/s
+			NetworkThreshold: 1048576,  // 1MB/s
 		},
 		Backup: BackupConfig{
 			BackupPrefix:        "Application_Backup",
@@ -109,6 +142,12 @@ func Init() {
 			ServiceTimeoutStopSec:  0,
 		},
 	}
+}
+
+// Init 初始化配置
+func Init() {
+	generator := NewDefaultConfigGenerator()
+	AppConfig = generator.GenerateDefaultConfig()
 }
 
 // LoadConfig 加载配置文件
