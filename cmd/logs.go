@@ -56,6 +56,35 @@ var logsCmd = &cobra.Command{
 		} else {
 			// 查看指定应用日志
 			appName := args[0]
+			
+			// 智能匹配应用名称
+			appService := services.NewApplicationService()
+			apps, err := appService.DiscoverApplications()
+			if err != nil {
+				handleError(fmt.Errorf("发现应用失败: %w", err), 1)
+			}
+			
+			// 首先尝试精确匹配
+			if app := apps.FindByName(appName); app != nil {
+				appName = app.Name
+			} else {
+				// 如果精确匹配失败，尝试模糊匹配
+				matches := apps.FindByPattern(appName)
+				if len(matches) == 0 {
+					handleError(fmt.Errorf("未找到匹配的应用: %s", appName), 1)
+				} else if len(matches) == 1 {
+					appName = matches[0].Name
+					fmt.Printf("智能匹配到应用: %s\n", appName)
+				} else {
+					// 多个匹配结果，显示候选列表
+					fmt.Printf("找到多个匹配的应用:\n")
+					for i, app := range matches {
+						fmt.Printf("  %d. %s\n", i+1, app.Name)
+					}
+					handleError(fmt.Errorf("请使用更具体的应用名称"), 1)
+				}
+			}
+			
 			if err := logService.ViewLog(appName, logLines, logFollow); err != nil {
 				handleError(err, 1)
 			}
@@ -64,7 +93,7 @@ var logsCmd = &cobra.Command{
 }
 
 func init() {
-	logsCmd.Flags().IntVarP(&logLines, "lines", "n", 50, "显示的日志行数")
+	logsCmd.Flags().IntVarP(&logLines, "lines", "n", 800, "显示的日志行数")
 	logsCmd.Flags().BoolVarP(&logFollow, "follow", "f", false, "实时跟踪日志文件")
 	logsCmd.Flags().BoolVarP(&logList, "list", "l", false, "列出所有应用的日志文件")
 }

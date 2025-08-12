@@ -278,6 +278,9 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 
 // showTableStatus 显示表格状态
 func showTableStatus(appService *services.ApplicationService, apps models.ApplicationList) error {
+	// 显示系统信息标题
+	showSystemInfoHeader()
+	
 	// 1. 批量更新所有进程信息以提高性能（包含监控数据）
 	logger.Info("[调试] 步骤1/2: 开始通过 'ps' 命令批量获取所有进程信息...")
 	appService.BatchUpdateProcessInfoWithMonitoring(apps)
