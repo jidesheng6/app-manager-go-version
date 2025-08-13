@@ -173,15 +173,15 @@ func showAllApplicationsStatus(appService *services.ApplicationService) error {
 // showSystemInfo 显示系统信息
 func showSystemInfo() {
 	systemInfo := config.GetSystemInfo()
-
-	logger.Println("")
+	
+	logger.Println("\n\n")
 	logger.Info("系统信息:")
-	logger.Printf("  主机名: \033[36m%s\033[0m\n", systemInfo["hostname"])
-	logger.Printf("  IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
-	logger.Printf("  项目目录: \033[36m%s\033[0m\n", systemInfo["project_root"])
-	logger.Printf("  Nacos地址: \033[36m%s\033[0m\n", systemInfo["nacos_server"])
-	logger.Printf("  Nacos命名空间: \033[36m%s\033[0m\n", systemInfo["nacos_namespace"])
-	logger.Printf("  JVM参数: \033[36m%s\033[0m\n", systemInfo["jvm_params"])
+	logger.Printf("主机名: \033[33m%s\033[0m\n", systemInfo["hostname"])
+	logger.Printf("IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
+	logger.Printf("项目目录: \033[32m%s\033[0m\n", systemInfo["project_root"])
+	logger.Printf("Nacos地址: \033[35m%s\033[0m\n", systemInfo["nacos_server"])
+	logger.Printf("Nacos命名空间: \033[34m%s\033[0m\n", systemInfo["nacos_namespace"])
+	logger.Printf("JVM参数: \033[37m%s\033[0m\n", systemInfo["jvm_params"])
 	logger.Println("")
 }
 
@@ -278,9 +278,6 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 
 // showTableStatus 显示表格状态
 func showTableStatus(appService *services.ApplicationService, apps models.ApplicationList) error {
-	// 显示系统信息标题
-	showSystemInfoHeader()
-	
 	// 1. 批量更新所有进程信息以提高性能（包含监控数据）
 	logger.Info("[调试] 步骤1/2: 开始通过 'ps' 命令批量获取所有进程信息...")
 	appService.BatchUpdateProcessInfoWithMonitoring(apps)
@@ -878,12 +875,13 @@ func showInteractiveHelp() {
     s: 启动                         - 单个:     1
     k: 停止                         - 多个:     1,3,5
     r: 重启                         - 范围:     1-5
-                                    - 混合:     1,3-5,8
-  其他:                           - 所有:     9999
+    L: 查看日志                     - 混合:     1,3-5,8
+                                    - 所有:     9999
+  其他:
     q, exit: 退出
     <回车>: 刷新
 
-  示例: s 1,3-5 (启动1,3,4,5)   k 9999 (停止所有)
+  示例: s 1,3-5 (启动1,3,4,5)   L1 500 (查看应用1的500行日志)
 `
 	fmt.Println(helpText)
 }
@@ -919,8 +917,30 @@ func handleInteractiveInput(appService *services.ApplicationService, rl *readlin
 	}
 
 	operation := strings.ToLower(string(input[0]))
+	
+	// 处理日志查看命令
+	if operation == "l" {
+		// 发现应用
+		apps, err := appService.DiscoverApplications()
+		if err != nil {
+			logger.Error("发现应用失败: %v", err)
+			time.Sleep(1 * time.Second)
+			return false
+		}
+		
+		if err := handleLogCommand(input, apps); err != nil {
+			logger.Error("查看日志失败: %v", err)
+			time.Sleep(1 * time.Second)
+		}
+		
+		// 等待用户按键继续
+		logger.Printf("\n按回车键继续...")
+		bufio.NewReader(os.Stdin).ReadString('\n')
+		return false
+	}
+	
 	if operation != "s" && operation != "r" && operation != "k" {
-		logger.Error("无效操作，请使用 s(启动)/r(重启)/k(停止)")
+		logger.Error("无效操作，请使用 s(启动)/r(重启)/k(停止)/L(查看日志)")
 		time.Sleep(1 * time.Second)
 		return false
 	}
@@ -1030,6 +1050,143 @@ func executeInteractiveOperation(appService *services.ApplicationService, operat
 				logger.Warning("-> 跳过: %s (已停止)", app.Name)
 			}
 		}
+	}
+}
+
+// parseLogCommand 解析 L 命令的应用索引和行数参数
+// 支持格式: L1, L2, L1 900, L2 500 等
+func parseLogCommand(input string) (appIndex int, lines int, err error) {
+	// 默认行数
+	lines = 500
+	
+	// 移除 L 前缀
+	if len(input) < 2 || strings.ToLower(string(input[0])) != "l" {
+		return 0, 0, fmt.Errorf("无效的 L 命令格式")
+	}
+	
+	// 解析剩余部分
+	remaining := strings.TrimSpace(input[1:])
+	if remaining == "" {
+		return 0, 0, fmt.Errorf("请指定应用序号，如: L1")
+	}
+	
+	// 按空格分割
+	parts := strings.Fields(remaining)
+	if len(parts) == 0 {
+		return 0, 0, fmt.Errorf("请指定应用序号，如: L1")
+	}
+	
+	// 解析应用索引
+	appIndex, err = strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("无效的应用序号: %s", parts[0])
+	}
+	
+	// 解析行数（可选）
+	if len(parts) > 1 {
+		lines, err = strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, 0, fmt.Errorf("无效的行数: %s", parts[1])
+		}
+		if lines <= 0 {
+			return 0, 0, fmt.Errorf("行数必须大于0")
+		}
+	}
+	
+	return appIndex, lines, nil
+}
+
+// handleLogCommand 处理日志查看命令
+func handleLogCommand(input string, apps models.ApplicationList) error {
+	// 解析命令参数
+	appIndex, lines, err := parseLogCommand(input)
+	if err != nil {
+		return err
+	}
+	
+	// 验证应用索引
+	if appIndex < 1 || appIndex > len(apps) {
+		return fmt.Errorf("应用序号 %d 超出范围 (1-%d)", appIndex, len(apps))
+	}
+	
+	// 获取目标应用
+	app := apps[appIndex-1]
+	
+	// 检查日志文件配置
+	if app.LogFile == "" {
+		return fmt.Errorf("应用 %s 没有配置日志文件", app.Name)
+	}
+	
+	// 检查日志文件是否存在
+	if _, err := os.Stat(app.LogFile); os.IsNotExist(err) {
+		return fmt.Errorf("日志文件不存在: %s", app.LogFile)
+	}
+	
+	// 清屏并显示日志
+	fmt.Print("\033[2J\033[H")
+	logger.Title("查看应用日志")
+	logger.Info("应用名称: %s", app.Name)
+	logger.Info("日志文件: %s", app.LogFile)
+	logger.Info("显示行数: %d", lines)
+	logger.Println("")
+	
+	// 读取日志文件
+	err = readLogTail(app.LogFile, lines)
+	if err != nil {
+		return fmt.Errorf("读取日志失败: %w", err)
+	}
+	
+	logger.Println("")
+	logger.Info("按回车键返回状态界面...")
+	
+	return nil
+}
+
+// readLogTail 读取日志文件的最后几行
+func readLogTail(logFile string, lines int) error {
+	file, err := os.Open(logFile)
+	if err != nil {
+		return fmt.Errorf("打开日志文件失败: %w", err)
+	}
+	defer file.Close()
+	
+	// 读取所有行
+	var allLines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		allLines = append(allLines, scanner.Text())
+	}
+	
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("读取日志文件失败: %w", err)
+	}
+	
+	// 显示最后几行
+	start := len(allLines) - lines
+	if start < 0 {
+		start = 0
+	}
+	
+	for i := start; i < len(allLines); i++ {
+		printLogLine(allLines[i])
+	}
+	
+	return nil
+}
+
+// printLogLine 打印日志行（带颜色格式化）
+func printLogLine(line string) {
+	// 简单的日志级别颜色化
+	if strings.Contains(line, "ERROR") || strings.Contains(line, "FATAL") {
+		fmt.Printf("\033[31m%s\033[0m\n", line) // 红色
+	} else if strings.Contains(line, "WARN") {
+		fmt.Printf("\033[33m%s\033[0m\n", line) // 黄色
+	} else if strings.Contains(line, "INFO") {
+		fmt.Printf("\033[32m%s\033[0m\n", line) // 绿色
+	} else if strings.Contains(line, "DEBUG") {
+		fmt.Printf("\033[36m%s\033[0m\n", line) // 青色
+	} else {
+		fmt.Println(line) // 默认颜色
 	}
 }
 
