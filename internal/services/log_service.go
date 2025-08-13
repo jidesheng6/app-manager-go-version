@@ -4,12 +4,15 @@ import (
 	"app-manager-go-v1/internal/config"
 	"app-manager-go-v1/internal/logger"
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -33,30 +36,30 @@ func (s *LogService) ViewLog(appName string, lines int, follow bool) error {
 	if err != nil {
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
-	
+
 	app := apps.FindByName(appName)
 	if app == nil {
 		return fmt.Errorf("未找到应用: %s", appName)
 	}
-	
+
 	if app.LogFile == "" {
 		return fmt.Errorf("应用 %s 没有配置日志文件", appName)
 	}
-	
+
 	// 检查日志文件是否存在
 	if _, err := os.Stat(app.LogFile); os.IsNotExist(err) {
 		return fmt.Errorf("日志文件不存在: %s", app.LogFile)
 	}
-	
+
 	logger.Title("查看应用日志")
 	logger.Info("应用名称: %s", app.Name)
 	logger.Info("日志文件: %s", app.LogFile)
 	logger.Println("")
-	
+
 	if follow {
 		return s.followLog(app.LogFile, lines)
 	}
-	
+
 	return s.tailLog(app.LogFile, lines)
 }
 
@@ -67,28 +70,28 @@ func (s *LogService) tailLog(logFile string, lines int) error {
 		return fmt.Errorf("打开日志文件失败: %w", err)
 	}
 	defer file.Close()
-	
+
 	// 读取所有行
 	var allLines []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		allLines = append(allLines, scanner.Text())
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("读取日志文件失败: %w", err)
 	}
-	
+
 	// 显示最后几行
 	start := len(allLines) - lines
 	if start < 0 {
 		start = 0
 	}
-	
+
 	for i := start; i < len(allLines); i++ {
 		s.printLogLine(allLines[i])
 	}
-	
+
 	return nil
 }
 
@@ -208,34 +211,66 @@ func (s *LogService) followLog(logFile string, lines int) error {
 	if err := s.tailLog(logFile, lines); err != nil {
 		return err
 	}
-	
+
 	logger.Info("开始实时跟踪日志文件 (按 Ctrl+C 退出)...")
 	logger.Println("")
-	
+
 	file, err := os.Open(logFile)
 	if err != nil {
 		return fmt.Errorf("打开日志文件失败: %w", err)
 	}
 	defer file.Close()
-	
+
 	// 移动到文件末尾
 	stat, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("获取文件信息失败: %w", err)
 	}
-	
+
 	_, err = file.Seek(stat.Size(), 0)
 	if err != nil {
 		return fmt.Errorf("移动文件指针失败: %w", err)
 	}
-	
+
+	// 创建上下文和信号处理
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 设置信号处理，只捕获这个命令的中断信号
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// 在goroutine中监听信号
+	go func() {
+		select {
+		case <-sigChan:
+			logger.Info("\n收到中断信号，停止日志跟踪...")
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	scanner := bufio.NewScanner(file)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
 	for {
-		if scanner.Scan() {
-			s.printLogLine(scanner.Text())
-		} else {
-			// 等待新内容
-			time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			// 清理信号处理
+			signal.Stop(sigChan)
+			close(sigChan)
+			logger.Success("日志跟踪已安全退出")
+			return nil
+		case <-ticker.C:
+			// 定期检查新内容
+			for scanner.Scan() {
+				s.printLogLine(scanner.Text())
+			}
+			if err := scanner.Err(); err != nil {
+				logger.Warning("读取日志文件时出错: %v", err)
+				return err
+			}
 		}
 	}
 }
@@ -305,29 +340,29 @@ func (s *LogService) RotateLogs() error {
 // findLogFiles 查找日志文件
 func (s *LogService) findLogFiles(logsDir string) ([]string, error) {
 	var logFiles []string
-	
+
 	err := filepath.Walk(logsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		if info.IsDir() {
 			return nil
 		}
-		
+
 		// 只处理 .log 和 .out 文件
 		if strings.HasSuffix(info.Name(), ".log") || strings.HasSuffix(info.Name(), ".out") {
 			// 跳过已经轮转的文件
-			if !strings.Contains(info.Name(), ".") || 
-				strings.HasSuffix(info.Name(), ".log") || 
+			if !strings.Contains(info.Name(), ".") ||
+				strings.HasSuffix(info.Name(), ".log") ||
 				strings.HasSuffix(info.Name(), ".out") {
 				logFiles = append(logFiles, path)
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	return logFiles, err
 }
 
@@ -337,13 +372,13 @@ func (s *LogService) shouldRotateLog(logFile string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	// 检查文件大小
 	maxSize := s.parseSize(s.config.Logrotate.LogrotateSize)
 	if stat.Size() >= maxSize {
 		return true
 	}
-	
+
 	// 检查时间周期
 	if s.config.Logrotate.LogrotateCycle == "daily" {
 		// 检查文件是否超过一天
@@ -352,26 +387,26 @@ func (s *LogService) shouldRotateLog(logFile string) bool {
 		// 检查文件是否超过一周
 		return time.Since(stat.ModTime()) > 7*24*time.Hour
 	}
-	
+
 	return false
 }
 
 // parseSize 解析大小字符串
 func (s *LogService) parseSize(sizeStr string) int64 {
 	sizeStr = strings.ToUpper(strings.TrimSpace(sizeStr))
-	
+
 	// 提取数字和单位
 	re := regexp.MustCompile(`^(\d+)([KMGT]?)B?$`)
 	matches := re.FindStringSubmatch(sizeStr)
 	if len(matches) != 3 {
 		return 10 * 1024 * 1024 // 默认10MB
 	}
-	
+
 	size, err := strconv.ParseInt(matches[1], 10, 64)
 	if err != nil {
 		return 10 * 1024 * 1024 // 默认10MB
 	}
-	
+
 	unit := matches[2]
 	switch unit {
 	case "K":
@@ -462,7 +497,7 @@ func (s *LogService) cleanAppRotatedLogs(appName string, logs []string) {
 	if len(logs) <= s.config.Logrotate.LogrotateRotate {
 		return
 	}
-	
+
 	// 按修改时间排序（最新的在前）
 	for i := 0; i < len(logs)-1; i++ {
 		for j := i + 1; j < len(logs); j++ {
@@ -473,7 +508,7 @@ func (s *LogService) cleanAppRotatedLogs(appName string, logs []string) {
 			}
 		}
 	}
-	
+
 	// 删除多余的日志文件
 	for i := s.config.Logrotate.LogrotateRotate; i < len(logs); i++ {
 		if err := os.Remove(logs[i]); err != nil {
@@ -487,22 +522,22 @@ func (s *LogService) cleanAppRotatedLogs(appName string, logs []string) {
 // ListLogs 列出所有应用的日志文件
 func (s *LogService) ListLogs() error {
 	logger.Title("应用日志文件列表")
-	
+
 	// 获取所有应用
 	appService := NewApplicationService()
 	apps, err := appService.DiscoverApplications()
 	if err != nil {
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
-	
+
 	if len(apps) == 0 {
 		logger.Info("没有找到任何应用")
 		return nil
 	}
-	
+
 	for _, app := range apps {
 		logger.Printf("应用: \033[33m%s\033[0m\n", app.Name)
-		
+
 		if app.LogFile == "" {
 			logger.Printf("  日志文件: \033[31m未配置\033[0m\n")
 		} else if _, err := os.Stat(app.LogFile); os.IsNotExist(err) {
@@ -517,7 +552,7 @@ func (s *LogService) ListLogs() error {
 		}
 		logger.Println("")
 	}
-	
+
 	return nil
 }
 

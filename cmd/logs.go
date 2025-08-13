@@ -47,7 +47,7 @@ var logsCmd = &cobra.Command{
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		logService := services.NewLogService()
-		
+
 		if logList {
 			// 列出所有日志文件
 			if err := logService.ListLogs(); err != nil {
@@ -56,14 +56,14 @@ var logsCmd = &cobra.Command{
 		} else {
 			// 查看指定应用日志
 			appName := args[0]
-			
+
 			// 智能匹配应用名称
 			appService := services.NewApplicationService()
 			apps, err := appService.DiscoverApplications()
 			if err != nil {
 				handleError(fmt.Errorf("发现应用失败: %w", err), 1)
 			}
-			
+
 			// 首先尝试精确匹配
 			if app := apps.FindByName(appName); app != nil {
 				appName = app.Name
@@ -84,7 +84,17 @@ var logsCmd = &cobra.Command{
 					handleError(fmt.Errorf("请使用更具体的应用名称"), 1)
 				}
 			}
-			
+
+			// 如果是跟踪模式，需要禁用全局信号处理器
+			if logFollow {
+				if DisableSignalHandling != nil {
+					DisableSignalHandling()
+				}
+				if EnableSignalHandling != nil {
+					defer EnableSignalHandling()
+				}
+			}
+
 			if err := logService.ViewLog(appName, logLines, logFollow); err != nil {
 				handleError(err, 1)
 			}

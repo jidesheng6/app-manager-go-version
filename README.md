@@ -157,6 +157,10 @@ java_path="java"
 nacos_server=""
 # Nacos命名空间 [选填]
 nacos_namespace=""
+# Nacos鉴权用户名 [选填，适用于 Nacos 2.5.1+ 开启鉴权]
+nacos_auth_name=""
+# Nacos鉴权密码 [选填，适用于 Nacos 2.5.1+ 开启鉴权]
+nacos_auth_password=""
 
 [application]
 # 应用程序类型 [选填，默认：mixed]

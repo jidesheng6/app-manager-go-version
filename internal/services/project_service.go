@@ -46,61 +46,61 @@ func (s *ProjectService) InitProject(projectPath string) error {
 		}
 		logger.Info("未指定项目路径，将在当前目录初始化")
 	}
-	
+
 	// 转换为绝对路径
 	absPath, err := filepath.Abs(projectPath)
 	if err != nil {
 		return fmt.Errorf("转换为绝对路径失败: %w", err)
 	}
-	
+
 	projectPath = absPath
 	logger.Title("Java应用管理系统 - 项目初始化")
 	logger.Info("开始初始化项目目录: %s", projectPath)
-	
+
 	// 创建目录结构
 	if err := s.createDirectoryStructure(projectPath); err != nil {
 		return err
 	}
-	
+
 	// 创建配置文件
 	if err := s.createConfigFile(projectPath); err != nil {
 		return err
 	}
-	
+
 	// 复制程序文件到project_backend目录
 	if err := s.copyProgramFiles(projectPath); err != nil {
 		return err
 	}
-	
+
 	logger.Success("项目初始化完成！")
 	s.printDirectoryStructure(projectPath)
 	s.printUsageInstructions(projectPath)
-	
+
 	return nil
 }
 
 // copyProgramFiles 复制程序文件到project_backend目录
 func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 	logger.Info("复制程序文件到project_backend目录...")
-	
+
 	// 获取当前可执行文件路径
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("获取可执行文件路径失败: %w", err)
 	}
-	
+
 	// 获取可执行文件所在目录
 	execDir := filepath.Dir(execPath)
 	backendDir := filepath.Join(projectRoot, "project_backend")
-	
+
 	// Linux环境，复制Linux版本的可执行文件
 	var filesToCopy []struct {
 		src, dst, desc string
 	}
-	
+
 	distDir := filepath.Join(execDir, "dist")
 	programName := config.GetProgramName()
-	
+
 	// 检查dist目录是否存在
 	if _, err := os.Stat(distDir); err == nil {
 		// 复制Linux AMD64版本
@@ -114,7 +114,7 @@ func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 				desc: "Linux AMD64可执行文件",
 			})
 		}
-		
+
 		// 复制Linux ARM64版本（可选）
 		arm64File := filepath.Join(distDir, programName+"-linux-arm64")
 		if _, err := os.Stat(arm64File); err == nil {
@@ -127,7 +127,7 @@ func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 			})
 		}
 	}
-	
+
 	// 如果没有找到dist目录中的文件，复制当前可执行文件
 	if len(filesToCopy) == 0 {
 		filesToCopy = append(filesToCopy, struct {
@@ -138,27 +138,27 @@ func (s *ProjectService) copyProgramFiles(projectRoot string) error {
 			desc: "当前可执行文件",
 		})
 	}
-	
+
 	// 执行文件复制
 	for _, file := range filesToCopy {
 		if err := s.copyFile(file.src, file.dst); err != nil {
 			logger.Warning("复制%s失败: %v", file.desc, err)
 			continue
 		}
-		
+
 		// 设置可执行权限（Linux）
 		if err := os.Chmod(file.dst, 0755); err != nil {
 			logger.Warning("设置可执行权限失败 %s: %v", file.dst, err)
 		}
-		
+
 		logger.Success("复制%s: %s", file.desc, filepath.Base(file.dst))
 	}
-	
+
 	if len(filesToCopy) == 0 {
 		logger.Warning("未找到可复制的程序文件")
 		return nil
 	}
-	
+
 	return nil
 }
 
@@ -169,13 +169,13 @@ func (s *ProjectService) copyFile(src, dst string) error {
 		return err
 	}
 	defer sourceFile.Close()
-	
+
 	destFile, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer destFile.Close()
-	
+
 	_, err = io.Copy(destFile, sourceFile)
 	return err
 }
@@ -241,12 +241,38 @@ nacos_server=
 #   prod                         # 生产环境
 #   550e8400-e29b-41d4-a716-446655440000  # UUID格式
 # 注意：不需要引号包围
-nacos_namespace=`
+nacos_namespace=
+
+# Nacos鉴权用户名 [选填，适用于 Nacos 2.5.1+ 开启鉴权]
+# 说明：当Nacos启用鉴权功能时的用户名，留空表示不使用鉴权
+# 格式：字符串
+# 示例：
+#   nacos                        # 默认用户
+#   admin                        # 管理员用户
+#   app_user                     # 应用专用用户
+# 注意：
+#   - 仅在Nacos 2.5.1+版本开启鉴权后需要配置
+#   - 与nacos_auth_password配对使用
+#   - 不需要引号包围
+nacos_auth_name=
+
+# Nacos鉴权密码 [选填，适用于 Nacos 2.5.1+ 开启鉴权]
+# 说明：当Nacos启用鉴权功能时的密码，留空表示不使用鉴权
+# 格式：字符串
+# 示例：
+#   nacos                        # 默认密码
+#   your_secure_password         # 自定义密码
+# 注意：
+#   - 仅在Nacos 2.5.1+版本开启鉴权后需要配置
+#   - 与nacos_auth_name配对使用
+#   - 不需要引号包围
+#   - 建议使用强密码
+nacos_auth_password=`
 }
 
-// getStartupPriorityConfigTemplate 获取应用启动优先级配置模板
-func (s *ProjectService) getStartupPriorityConfigTemplate() string {
-	return `[startup_priority]
+// getApplicationsConfigTemplate 获取应用启动优先级配置模板
+func (s *ProjectService) getApplicationsConfigTemplate() string {
+	return `[applications]
 
 # 说明：
 #   本配置段用于定义特定应用程序的启动顺序和延迟。
@@ -255,25 +281,25 @@ func (s *ProjectService) getStartupPriorityConfigTemplate() string {
 #
 # 配置格式：
 #   <app_name>.priority = <priority>
-#   <app_name>.delay = <delay_in_seconds>
+#   <app_name>.startup_delay = <delay_in_seconds>
 #
 # 参数说明：
 #   <app_name>          - 应用程序的名称（不含.jar后缀）。
 #   priority            - 启动优先级，数字越小，优先级越高（例如，1会比10先启动）。
-#   delay               - 启动前延迟的秒数，用于等待依赖项完全启动。
+#   startup_delay       - 启动前延迟的秒数，用于等待依赖项完全启动。
 #
 # 示例：
 #   假设 party-gateway 依赖于 party-auth。
 #   我们希望 party-auth 首先启动，并等待5秒后，再启动 party-gateway。
 #
 #   party-auth.priority = 10
-#   party-auth.delay = 0
+#   party-auth.startup_delay = 0
 #
 #   party-gateway.priority = 20
-#   party-gateway.delay = 5
+#   party-gateway.startup_delay = 5
 #
 # 注意：
-#   - 每个应用的 priority 和 delay 必须成对出现。
+#   - 每个应用的 priority 和 startup_delay 必须成对出现。
 #   - app_name 必须是唯一的。
 #   - 如果多个应用的 priority 相同，它们的启动顺序将不确定。
 #   - 此处无需填写任何内容，仅为示例说明。`
@@ -833,7 +859,6 @@ func (s *ProjectService) getFooterTemplate() string {
 # 如有问题，请参考文档或联系技术支持。`
 }
 
-
 // getDetailedConfigTemplate 获取详细的配置模板
 func (s *ProjectService) getDetailedConfigTemplate() (string, error) {
 	var sb strings.Builder
@@ -852,7 +877,7 @@ func (s *ProjectService) getDetailedConfigTemplate() (string, error) {
 	// 拼接各个配置段
 	sb.WriteString(s.getConfigTemplateSection("全局配置", s.getGlobalConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("Nacos配置中心", s.getNacosConfigTemplate()))
-	sb.WriteString(s.getConfigTemplateSection("应用启动优先级配置", s.getStartupPriorityConfigTemplate()))
+	sb.WriteString(s.getConfigTemplateSection("应用启动优先级配置", s.getApplicationsConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("应用配置", s.getApplicationConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("监控配置", s.getMonitoringConfigTemplate()))
 	sb.WriteString(s.getConfigTemplateSection("备份配置", s.getBackupConfigTemplate()))
@@ -888,20 +913,20 @@ func (s *ProjectService) createDirectoryStructure(projectRoot string) error {
 		"project_backend/file_upload",
 		"project_backend/rotate_logs",
 	}
-	
+
 	for _, dir := range directories {
 		dirPath := filepath.Join(projectRoot, dir)
 		if err := os.MkdirAll(dirPath, 0755); err != nil {
 			return fmt.Errorf("创建目录失败 %s: %w", dir, err)
 		}
-		
+
 		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 			logger.Info("创建目录: %s", dir)
 		} else {
 			logger.Warning("目录已存在: %s", dir)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -909,17 +934,17 @@ func (s *ProjectService) createDirectoryStructure(projectRoot string) error {
 func (s *ProjectService) createConfigFile(projectRoot string) error {
 	configFileName := config.GetConfigFileName()
 	configPath := filepath.Join(projectRoot, "project_backend", configFileName)
-	
+
 	logger.Info("创建配置文件: %s", configPath)
-	
+
 	// 更新配置
 	s.config.Global.ProjectRoot = projectRoot
-	
+
 	// 创建INI格式的配置文件内容
 	if err := s.createINIConfigFile(configPath); err != nil {
 		return fmt.Errorf("创建配置文件失败: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -930,7 +955,7 @@ func (s *ProjectService) createINIConfigFile(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("获取配置模板失败: %w", err)
 	}
-	
+
 	// 替换模板中的占位符
 	content := strings.ReplaceAll(templateContent, "{{PROJECT_ROOT}}", s.config.Global.ProjectRoot)
 	content = strings.ReplaceAll(content, "{{JAVA_PATH}}", s.config.Global.JavaPath)
@@ -953,7 +978,7 @@ func (s *ProjectService) createINIConfigFile(configPath string) error {
 func (s *ProjectService) printDirectoryStructure(projectRoot string) {
 	logger.Println("")
 	logger.Info("目录结构如下：")
-	
+
 	configFileName := config.GetConfigFileName()
 	structure := fmt.Sprintf(`%s/
 ├── project_backend/     # 后端应用目录
@@ -967,7 +992,7 @@ func (s *ProjectService) printDirectoryStructure(projectRoot string) {
 ├── project_backup/      # 备份文件目录
 ├── project_update/      # 更新文件目录
 └── project_cache/       # 缓存文件目录`, projectRoot, configFileName)
-	
+
 	logger.Printf("\033[36m%s\033[0m\n", structure)
 }
 
@@ -978,57 +1003,57 @@ func (s *ProjectService) printUsageInstructions(projectRoot string) {
 	logger.Printf("\033[32m\033[1m  🎉 初始化成功！配置文件已创建 🎉\033[0m\n")
 	logger.Println("═══════════════════════════════════════════════════════════")
 	logger.Println("")
-	
+
 	logger.Info("接下来请执行以下命令开始使用：")
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  🚀 进入工作目录：\033[0m\n")
 	logger.Printf("     cd %s/project_backend\n", projectRoot)
 	logger.Println("")
-	
+
 	programName := config.GetProgramName()
 	logger.Printf("\033[33m\033[1m  📖 查看帮助信息：\033[0m\n")
 	logger.Printf("     %s help\n", programName)
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  🔧 常用操作命令：\033[0m\n")
 	logger.Printf("     %s start              # 启动应用\n", programName)
 	logger.Printf("     %s status             # 查看状态\n", programName)
 	logger.Printf("     %s logs <应用名>      # 查看日志\n", programName)
 	logger.Println("")
-	
+
 	logger.Warning("请先将您的JAR/WAR文件复制到project_backend目录，然后开始使用应用管理")
 }
 
 // UpdatePrepare 更新准备
 func (s *ProjectService) UpdatePrepare(autoBackup bool) error {
 	logger.Title("应用更新准备")
-	
+
 	projectRoot := config.GetProjectRoot()
 	updateDir := filepath.Join(projectRoot, "project_update")
-	
+
 	// 确保更新目录存在
 	if err := os.MkdirAll(updateDir, 0755); err != nil {
 		return fmt.Errorf("创建更新目录失败: %w", err)
 	}
-	
+
 	// 创建时间目录
 	timeDir := filepath.Join(updateDir, time.Now().Format("20060102_150405"))
 	if err := os.MkdirAll(timeDir, 0755); err != nil {
 		return fmt.Errorf("创建时间目录失败: %w", err)
 	}
-	
+
 	// 在时间目录下创建TempUnzip目录
 	tempUnzipDir := filepath.Join(timeDir, "TempUnzip")
 	if err := os.MkdirAll(tempUnzipDir, 0755); err != nil {
 		return fmt.Errorf("创建TempUnzip目录失败: %w", err)
 	}
-	
+
 	logger.Info("创建更新目录结构:")
 	logger.Info("  更新根目录: %s", updateDir)
 	logger.Info("  时间目录: %s", timeDir)
 	logger.Info("  临时解压目录: %s", tempUnzipDir)
-	
+
 	// 创建更新前备份
 	if autoBackup || s.promptForBackup() {
 		backupService := NewBackupService()
@@ -1045,14 +1070,14 @@ func (s *ProjectService) UpdatePrepare(autoBackup bool) error {
 			logger.Success("备份创建成功")
 		}
 	}
-	
+
 	// 检查运行中的应用并提示用户手动停止
 	appService := NewApplicationService()
 	apps, err := appService.DiscoverApplications()
 	if err != nil {
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
-	
+
 	runningApps := apps.Running()
 	if len(runningApps) > 0 {
 		logger.Warning("检测到以下应用正在运行：")
@@ -1063,10 +1088,10 @@ func (s *ProjectService) UpdatePrepare(autoBackup bool) error {
 		logger.Warning("更新应用后，请记得使用 'app-manager restart' 或 'app-manager start' 命令来重启或启动应用。")
 		logger.Println("")
 	}
-	
+
 	// 显示更新流程说明
 	s.printUpdateInstructions(timeDir, tempUnzipDir)
-	
+
 	return nil
 }
 
@@ -1078,49 +1103,49 @@ func (s *ProjectService) printUpdateInstructions(timeDir, tempUnzipDir string) {
 	logger.Printf("\033[32m\033[1m  🚀 更新流程说明 🚀\033[0m\n")
 	logger.Println("═══════════════════════════════════════════════════════════")
 	logger.Println("")
-	
+
 	logger.Info("更新步骤：")
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  步骤1: 传输更新文件\033[0m\n")
 	logger.Printf("     使用scp传输更新包到服务器：\n")
 	logger.Printf("     \033[37mscp update.zip user@server:%s/\033[0m\n", timeDir)
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  步骤2: 解压更新包\033[0m\n")
 	logger.Printf("     解压ZIP包到临时目录：\n")
 	logger.Printf("     \033[37mcd %s\033[0m\n", timeDir)
 	logger.Printf("     \033[37munzip update.zip -d TempUnzip/\033[0m\n")
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  步骤3: 备份当前版本\033[0m\n")
 	logger.Printf("     当前版本已自动备份，如需手动备份：\n")
 	logger.Printf("     \033[37m%s backup manual_backup_before_update\033[0m\n", config.GetProgramName())
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  步骤4: 更新应用文件\033[0m\n")
 	logger.Printf("     将新文件复制到应用目录：\n")
 	logger.Printf("     \033[37mcp TempUnzip/* %s/project_backend/\033[0m\n", config.GetProjectRoot())
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  步骤5: 启动应用\033[0m\n")
 	logger.Printf("     启动更新后的应用：\n")
 	logger.Printf("     \033[37m%s start\033[0m\n", config.GetProgramName())
 	logger.Println("")
-	
+
 	logger.Printf("\033[33m\033[1m  步骤6: 验证更新\033[0m\n")
 	logger.Printf("     检查应用状态和功能：\n")
 	logger.Printf("     \033[37m%s status\033[0m\n", config.GetProgramName())
 	logger.Printf("     \033[37m%s logs <应用名>\033[0m\n", config.GetProgramName())
 	logger.Println("")
-	
+
 	logger.Warning("注意事项：")
 	logger.Printf("  • 更新前已自动创建备份，如有问题可回滚\n")
 	logger.Printf("  • 建议在维护窗口期间执行更新操作\n")
 	logger.Printf("  • 更新完成后请验证所有功能是否正常\n")
 	logger.Printf("  • 如遇问题，可使用备份文件快速恢复\n")
 	logger.Println("")
-	
+
 	logger.Info("目录信息：")
 	logger.Printf("  时间目录: \033[33m%s\033[0m\n", timeDir)
 	logger.Printf("  解压目录: \033[33m%s\033[0m\n", tempUnzipDir)

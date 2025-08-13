@@ -61,8 +61,11 @@ func (s *ApplicationService) DiscoverApplications() (models.ApplicationList, err
 				app.StartupDelay = priorityConfig.StartupDelay
 			} else {
 				// 如果未配置，则使用默认优先级
-				app.Priority = 999
-				app.StartupDelay = 0
+				app.Priority = s.config.Application.DefaultPriority
+				if app.Priority == 0 {
+					app.Priority = 999 // 兜底默认值
+				}
+				app.StartupDelay = s.config.Application.StartupDelay
 			}
 
 			// 加载PID信息
@@ -98,19 +101,19 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	if app.IsRunning() {
 		return fmt.Errorf("应用 %s 已经在运行 (PID: %d)", app.Name, app.PID)
 	}
-	
+
 	logger.Info("正在启动应用: %s", app.Name)
-	
+
 	// 构建启动命令
 	args := []string{}
-	
+
 	// 获取优化后的JVM参数（包含随机数优化）
 	jvmParams := config.GetOptimizedJVMParams()
 	if jvmParams != "" {
 		jvmArgs := strings.Fields(jvmParams)
 		args = append(args, jvmArgs...)
 	}
-	
+
 	// 添加配置文件参数
 	if app.ConfigFile != "" {
 		// 检查配置文件是否存在
@@ -123,33 +126,33 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	} else {
 		logger.Info("未找到匹配的配置文件，使用应用内部默认配置")
 	}
-	
+
 	// 添加JAR文件
 	args = append(args, "-jar", app.FilePath)
-	
+
 	// 创建日志目录
 	if err := os.MkdirAll(filepath.Dir(app.LogFile), 0755); err != nil {
 		return fmt.Errorf("创建日志目录失败: %w", err)
 	}
-	
+
 	// 创建日志文件
 	logFile, err := os.OpenFile(app.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("创建日志文件失败: %w", err)
 	}
 	defer logFile.Close()
-	
+
 	// 创建命令
 	cmd := exec.Command(s.config.Global.JavaPath, args...)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	// 设置环境变量
 	cmd.Env = os.Environ()
-	
+
 	// 添加Nacos环境变量（如果启用）
 	if config.IsNacosEnabled() {
 		nacosEnvVars := config.GetNacosEnvironmentVars()
-		
+
 		// 显示Nacos配置信息
 		logger.Info("🔧 Nacos配置:")
 		for key, value := range nacosEnvVars {
@@ -157,29 +160,29 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 			logger.Info("   %s: %s", key, value)
 		}
 	}
-	
+
 	// 启动进程
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动应用失败: %w", err)
 	}
-	
+
 	// 保存PID
 	app.PID = cmd.Process.Pid
 	app.Status = models.StatusStarting
-	
+
 	pidFile := filepath.Join(config.GetPidsDir(), app.Name+".pid")
 	if err := app.SavePID(pidFile); err != nil {
 		logger.Warning("保存PID文件失败: %v", err)
 	}
-	
+
 	logger.Info("应用启动中，PID: %d", app.PID)
 	logger.Info("日志文件: %s", app.LogFile)
-	
+
 	// 设置为运行状态
 	app.Status = models.StatusRunning
 	logger.Success("应用启动命令已执行，PID: %d", app.PID)
 	logger.Info("使用 '%s status' 查看应用状态", config.GetProgramName())
-	
+
 	return nil
 }
 
@@ -363,7 +366,7 @@ func (s *ApplicationService) getPortConnectionsForPID(pid int) string {
 				state := fields[0]
 				localAddr := fields[3]
 				remoteAddr := fields[4]
-				
+
 				// 提取本地端口
 				localParts := strings.Split(localAddr, ":")
 				if len(localParts) > 0 {
@@ -401,13 +404,13 @@ func (s *ApplicationService) parseIOStats(content string) (readBytes, writeBytes
 		if len(fields) != 2 {
 			continue
 		}
-		
+
 		key := fields[0]
 		value, parseErr := strconv.ParseUint(fields[1], 10, 64)
 		if parseErr != nil {
 			continue
 		}
-		
+
 		switch key {
 		case "read_bytes:":
 			readBytes = value
@@ -439,7 +442,7 @@ func (s *ApplicationService) getNetworkStats() (rxBytes, txBytes uint64, err err
 func (s *ApplicationService) parseNetworkStats(content string) (rxBytes, txBytes uint64, err error) {
 	lines := strings.Split(content, "\n")
 	var totalRx, totalTx uint64
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.Contains(line, ":") && !strings.HasPrefix(line, "Inter-") && !strings.HasPrefix(line, "face") {
@@ -448,13 +451,13 @@ func (s *ApplicationService) parseNetworkStats(content string) (rxBytes, txBytes
 			if len(parts) != 2 {
 				continue
 			}
-			
+
 			interfaceName := strings.TrimSpace(parts[0])
 			// 跳过回环接口
 			if interfaceName == "lo" {
 				continue
 			}
-			
+
 			fields := strings.Fields(strings.TrimSpace(parts[1]))
 			if len(fields) >= 9 {
 				// 字段顺序: bytes packets errs drop fifo frame compressed multicast bytes packets errs drop fifo colls carrier compressed
@@ -468,7 +471,7 @@ func (s *ApplicationService) parseNetworkStats(content string) (rxBytes, txBytes
 			}
 		}
 	}
-	
+
 	return totalRx, totalTx, nil
 }
 
@@ -483,32 +486,32 @@ func (s *ApplicationService) getNetworkStatsForPID(pid int) (rxBytes, txBytes ui
 // getNetworkStatsFromConnections 通过网络连接获取进程网络统计（更精确的方法）
 func (s *ApplicationService) getNetworkStatsFromConnections(pid int) (rxBytes, txBytes uint64, err error) {
 	var totalRx, totalTx uint64
-	
+
 	// 获取进程的socket文件描述符
 	socketInodes, err := s.getProcessSocketInodes(pid)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get socket inodes for PID %d: %v", pid, err)
 	}
-	
+
 	if len(socketInodes) == 0 {
 		// 进程没有网络连接，返回0
 		return 0, 0, nil
 	}
-	
+
 	// 解析TCP连接
 	tcpRx, tcpTx, err := s.getNetworkStatsFromProtocol("tcp", socketInodes)
 	if err == nil {
 		totalRx += tcpRx
 		totalTx += tcpTx
 	}
-	
+
 	// 解析UDP连接
 	udpRx, udpTx, err := s.getNetworkStatsFromProtocol("udp", socketInodes)
 	if err == nil {
 		totalRx += udpRx
 		totalTx += udpTx
 	}
-	
+
 	return totalRx, totalTx, nil
 }
 
@@ -519,7 +522,7 @@ func (s *ApplicationService) getProcessSocketInodes(pid int) (map[string]bool, e
 	if err != nil {
 		return nil, err
 	}
-	
+
 	socketInodes := make(map[string]bool)
 	for _, entry := range entries {
 		fdPath := filepath.Join(fdDir, entry.Name())
@@ -527,14 +530,14 @@ func (s *ApplicationService) getProcessSocketInodes(pid int) (map[string]bool, e
 		if err != nil {
 			continue
 		}
-		
+
 		// 检查是否是socket链接 (格式: socket:[inode])
 		if strings.HasPrefix(linkTarget, "socket:[") && strings.HasSuffix(linkTarget, "]") {
 			inode := linkTarget[8 : len(linkTarget)-1] // 提取inode号
 			socketInodes[inode] = true
 		}
 	}
-	
+
 	return socketInodes, nil
 }
 
@@ -546,43 +549,43 @@ func (s *ApplicationService) getNetworkStatsFromProtocol(protocol string, socket
 		return 0, 0, err
 	}
 	defer file.Close()
-	
+
 	var totalRx, totalTx uint64
 	scanner := bufio.NewScanner(file)
-	
+
 	// 跳过标题行
 	if scanner.Scan() {
 		// 标题行，跳过
 	}
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		fields := strings.Fields(line)
-		
+
 		// /proc/net/tcp 和 /proc/net/udp 的格式：
 		// sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode
 		if len(fields) < 10 {
 			continue
 		}
-		
+
 		inode := fields[9]
 		if socketInodes[inode] {
 			// 这个连接属于我们的进程
 			// 注意：/proc/net/tcp 中的 tx_queue 和 rx_queue 是队列中的字节数，不是总传输量
 			// 这里我们只能获取当前队列状态，无法获取历史传输总量
-			
+
 			// 解析 tx_queue (发送队列)
 			if txQueue, err := strconv.ParseUint(fields[4], 16, 64); err == nil {
 				totalTx += txQueue
 			}
-			
+
 			// 解析 rx_queue (接收队列)
 			if rxQueue, err := strconv.ParseUint(fields[5], 16, 64); err == nil {
 				totalRx += rxQueue
 			}
 		}
 	}
-	
+
 	return totalRx, totalTx, scanner.Err()
 }
 
@@ -595,11 +598,11 @@ func (s *ApplicationService) calculateNetworkRate(pid int, currentRx, currentTx 
 
 // IOSample 表示一个I/O采样点
 type IOSample struct {
-	Timestamp   time.Time
-	ReadBytes   uint64
-	WriteBytes  uint64
-	NetworkRx   uint64
-	NetworkTx   uint64
+	Timestamp  time.Time
+	ReadBytes  uint64
+	WriteBytes uint64
+	NetworkRx  uint64
+	NetworkTx  uint64
 }
 
 // SampleManager 管理采样数据
@@ -619,15 +622,15 @@ func NewSampleManager() *SampleManager {
 func (sm *SampleManager) AddSample(pid int, sample IOSample) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
-	
+
 	samples := sm.samples[pid]
 	samples = append(samples, sample)
-	
+
 	// 保持最近10个采样点
 	if len(samples) > 10 {
 		samples = samples[len(samples)-10:]
 	}
-	
+
 	sm.samples[pid] = samples
 }
 
@@ -635,26 +638,26 @@ func (sm *SampleManager) AddSample(pid int, sample IOSample) {
 func (sm *SampleManager) GetRate(pid int, currentRead, currentWrite, currentRx, currentTx uint64) (readRate, writeRate, rxRate, txRate float64) {
 	sm.mutex.RLock()
 	defer sm.mutex.RUnlock()
-	
+
 	samples := sm.samples[pid]
 	if len(samples) < 2 {
 		return 0, 0, 0, 0
 	}
-	
+
 	// 使用最近两个采样点计算速率
 	prev := samples[len(samples)-1]
 	now := time.Now()
-	
+
 	timeDiff := now.Sub(prev.Timestamp).Seconds()
 	if timeDiff <= 0 {
 		return 0, 0, 0, 0
 	}
-	
+
 	readRate = float64(currentRead-prev.ReadBytes) / timeDiff
 	writeRate = float64(currentWrite-prev.WriteBytes) / timeDiff
 	rxRate = float64(currentRx-prev.NetworkRx) / timeDiff
 	txRate = float64(currentTx-prev.NetworkTx) / timeDiff
-	
+
 	return readRate, writeRate, rxRate, txRate
 }
 
@@ -691,12 +694,12 @@ func (s *ApplicationService) formatRate(bytesPerSec float64) string {
 func (s *ApplicationService) BatchUpdateProcessInfoWithMonitoring(apps models.ApplicationList) {
 	// 首先调用原有的批量更新
 	models.BatchUpdateProcessInfo(apps)
-	
+
 	// 如果监控功能未启用，直接返回
 	if !s.config.Monitoring.EnableDiskIO && !s.config.Monitoring.EnableNetwork && !s.config.Monitoring.EnablePortStats {
 		return
 	}
-	
+
 	// 为每个运行中的应用收集监控数据
 	for _, app := range apps {
 		if !app.IsRunning() {
@@ -704,27 +707,27 @@ func (s *ApplicationService) BatchUpdateProcessInfoWithMonitoring(apps models.Ap
 			s.sampleManager.RemovePID(app.PID)
 			continue
 		}
-		
+
 		// 获取进程信息
 		processInfo := models.BatchProcessInfo[app.PID]
 		if processInfo == nil {
 			continue
 		}
-		
+
 		// 收集磁盘I/O数据
 		if s.config.Monitoring.EnableDiskIO {
 			readBytes, writeBytes, err := s.getDiskIOForPID(app.PID)
 			if err == nil {
 				processInfo.DiskReadBytes = readBytes
 				processInfo.DiskWriteBytes = writeBytes
-				
+
 				// 计算磁盘I/O速率
 				readRate, writeRate, _, _ := s.sampleManager.GetRate(app.PID, readBytes, writeBytes, 0, 0)
 				processInfo.DiskReadRate = s.formatRate(readRate)
 				processInfo.DiskWriteRate = s.formatRate(writeRate)
 			}
 		}
-		
+
 		// 收集进程级网络数据
 		if s.config.Monitoring.EnableNetwork {
 			// 为每个进程获取独立的网络统计
@@ -733,7 +736,7 @@ func (s *ApplicationService) BatchUpdateProcessInfoWithMonitoring(apps models.Ap
 				processInfo.NetworkRxBytes = processRx
 				processInfo.NetworkTxBytes = processTx
 				processInfo.NetworkDataSource = "system-level" // 标识为系统级数据
-				
+
 				// 计算进程级网络速率
 				rxRate, txRate := s.calculateNetworkRate(app.PID, processRx, processTx)
 				processInfo.NetworkRxRate = s.formatRate(rxRate)
@@ -745,7 +748,7 @@ func (s *ApplicationService) BatchUpdateProcessInfoWithMonitoring(apps models.Ap
 					processInfo.NetworkRxBytes = systemRx
 					processInfo.NetworkTxBytes = systemTx
 					processInfo.NetworkDataSource = "system-level" // 标识为系统级数据
-					
+
 					// 使用系统级数据计算速率（但每个进程会显示相同值）
 					rxRate, txRate := s.calculateNetworkRate(app.PID, systemRx, systemTx)
 					processInfo.NetworkRxRate = s.formatRate(rxRate)
@@ -755,12 +758,12 @@ func (s *ApplicationService) BatchUpdateProcessInfoWithMonitoring(apps models.Ap
 				}
 			}
 		}
-		
+
 		// 收集端口连接状态
 		if s.config.Monitoring.EnablePortStats {
 			processInfo.PortConnections = s.getPortConnectionsForPID(app.PID)
 		}
-		
+
 		// 添加采样点
 		sample := IOSample{
 			Timestamp:  time.Now(),
@@ -805,10 +808,10 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
 		return ""
 	}
-	
+
 	// 可能的配置文件扩展名
 	extensions := []string{".yml", ".yaml", ".properties", ".ini"}
-	
+
 	// 尝试精确匹配
 	for _, ext := range extensions {
 		configFile := filepath.Join(configDir, appName+ext)
@@ -816,19 +819,19 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 			return configFile
 		}
 	}
-	
+
 	// 尝试模糊匹配
 	files, err := os.ReadDir(configDir)
 	if err != nil {
 		return ""
 	}
-	
+
 	appNameLower := strings.ToLower(appName)
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
-		
+
 		fileName := strings.ToLower(file.Name())
 		for _, ext := range extensions {
 			if strings.HasSuffix(fileName, ext) {
@@ -840,7 +843,7 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 			}
 		}
 	}
-	
+
 	return ""
 }
 
@@ -861,11 +864,11 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 	if err != nil {
 		return nil, fmt.Errorf("执行ss命令失败: %w", err)
 	}
-	
+
 	connections := 0
 	portType := "TCP"
 	isListening := false
-	
+
 	// 解析ss输出
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
@@ -873,36 +876,36 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 		if line == "" || strings.HasPrefix(line, "Netid") {
 			continue
 		}
-		
+
 		fields := strings.Fields(line)
 		if len(fields) < 5 {
 			continue
 		}
-		
+
 		// ss输出格式: Netid State Recv-Q Send-Q Local_Address:Port Peer_Address:Port
 		protocol := strings.ToUpper(fields[0])
 		state := strings.ToUpper(fields[1])
 		localAddr := fields[4]
-		
+
 		// 确定协议类型
 		if strings.Contains(protocol, "UDP") {
 			portType = "UDP"
 		} else if strings.Contains(protocol, "TCP") {
 			portType = "TCP"
 		}
-		
+
 		// 检查端口匹配
 		portPattern := fmt.Sprintf(":%d", port)
 		if strings.HasSuffix(localAddr, portPattern) {
 			connections++
-			
+
 			// 检查是否为监听状态
 			if state == "LISTEN" || state == "UNCONN" {
 				isListening = true
 			}
 		}
 	}
-	
+
 	// 如果找到了端口信息，获取已建立连接数
 	establishedConnections := 0
 	if isListening {
@@ -915,12 +918,12 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 				if line == "" || strings.HasPrefix(line, "Netid") {
 					continue
 				}
-				
+
 				estabFields := strings.Fields(line)
 				if len(estabFields) >= 5 {
 					state := strings.ToUpper(estabFields[1])
 					localAddr := estabFields[4]
-					
+
 					portPattern := fmt.Sprintf(":%d", port)
 					if strings.HasSuffix(localAddr, portPattern) && state == "ESTAB" {
 						establishedConnections++
@@ -929,10 +932,10 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 			}
 		}
 	}
-	
+
 	// 生成描述
 	description := s.generatePortDescription(port, isListening, establishedConnections, connections)
-	
+
 	return &PortConnectionStats{
 		Port:        port,
 		Connections: establishedConnections, // 返回已建立连接数而不是总连接数
@@ -950,12 +953,12 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 	if err != nil {
 		return nil, fmt.Errorf("执行netstat命令失败: %w", err)
 	}
-	
+
 	connections := 0
 	portType := "TCP"
 	isListening := false
 	establishedConnections := 0
-	
+
 	// 解析netstat输出
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
@@ -963,12 +966,12 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 		if line == "" {
 			continue
 		}
-		
+
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
-		
+
 		// 确定协议类型
 		protocol := strings.ToUpper(fields[0])
 		if strings.Contains(protocol, "UDP") {
@@ -976,27 +979,27 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 		} else if strings.Contains(protocol, "TCP") {
 			portType = "TCP"
 		}
-		
+
 		// 获取本地地址
 		localAddr := fields[1]
-		
+
 		// 改进的端口匹配逻辑 - 支持Linux格式
 		portPattern := fmt.Sprintf(":%d", port)
 		if strings.HasSuffix(localAddr, portPattern) {
 			// 确保是精确匹配端口号
 			beforePort := strings.TrimSuffix(localAddr, portPattern)
 			// 检查端口前面是否是有效的IP地址格式
-			if beforePort == "" || 
-			   strings.HasSuffix(beforePort, ".") || 
-			   strings.HasSuffix(beforePort, ":") || 
-			   beforePort == "0.0.0.0" || 
-			   beforePort == "127.0.0.1" ||
-			   beforePort == ":::" ||
-			   beforePort == "[::]" ||
-			   strings.Contains(beforePort, ".") {
-				
+			if beforePort == "" ||
+				strings.HasSuffix(beforePort, ".") ||
+				strings.HasSuffix(beforePort, ":") ||
+				beforePort == "0.0.0.0" ||
+				beforePort == "127.0.0.1" ||
+				beforePort == ":::" ||
+				beforePort == "[::]" ||
+				strings.Contains(beforePort, ".") {
+
 				connections++
-				
+
 				// 检查状态
 				if len(fields) >= 4 {
 					state := strings.ToUpper(fields[3])
@@ -1010,10 +1013,10 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 			}
 		}
 	}
-	
+
 	// 生成描述
 	description := s.generatePortDescription(port, isListening, establishedConnections, connections)
-	
+
 	return &PortConnectionStats{
 		Port:        port,
 		Connections: establishedConnections, // 返回已建立连接数而不是总连接数
@@ -1051,7 +1054,7 @@ func (s *ApplicationService) generatePortDescription(port int, isListening bool,
 			portDescription = "未知服务"
 		}
 	}
-	
+
 	// 生成最终描述
 	if isListening {
 		// 如果端口在监听，显示服务类型和连接数
@@ -1070,17 +1073,17 @@ func (s *ApplicationService) generatePortDescription(port int, isListening bool,
 // GetPortConnectionStats 获取指定端口的连接统计信息
 func (s *ApplicationService) GetPortConnectionStats(port int) (*PortConnectionStats, error) {
 	// 分层检测策略：优先使用ss命令，失败时回退到netstat命令
-	
+
 	// 第一层：尝试使用ss命令（现代Linux标准工具）
 	if stats, err := s.trySSCommand(port); err == nil {
 		return stats, nil
 	}
-	
+
 	// 第二层：回退到netstat命令
 	if stats, err := s.tryNetstatCommand(port); err == nil {
 		return stats, nil
 	}
-	
+
 	// 第三层：如果所有命令都失败，返回基础信息
 	return &PortConnectionStats{
 		Port:        port,
