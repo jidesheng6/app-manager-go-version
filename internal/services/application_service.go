@@ -849,6 +849,7 @@ type PortConnectionStats struct {
 	Port        int    `json:"port"`
 	Connections int    `json:"connections"`
 	Type        string `json:"type"`
+	IsListening bool   `json:"is_listening"`
 	Description string `json:"description"`
 }
 
@@ -936,6 +937,7 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 		Port:        port,
 		Connections: establishedConnections, // 返回已建立连接数而不是总连接数
 		Type:        portType,
+		IsListening: isListening,
 		Description: description,
 	}, nil
 }
@@ -1016,6 +1018,7 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 		Port:        port,
 		Connections: establishedConnections, // 返回已建立连接数而不是总连接数
 		Type:        portType,
+		IsListening: isListening,
 		Description: description,
 	}, nil
 }
@@ -1083,6 +1086,7 @@ func (s *ApplicationService) GetPortConnectionStats(port int) (*PortConnectionSt
 		Port:        port,
 		Connections: 0,
 		Type:        "TCP",
+		IsListening: false,
 		Description: "检测失败",
 	}, nil
 }

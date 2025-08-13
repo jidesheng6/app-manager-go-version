@@ -538,7 +538,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 			status := "关闭"
 			statusColor := tablewriter.Colors{tablewriter.FgRedColor}
 			connCount := 0
-			if connections != nil && connections.Connections > 0 {
+			if connections != nil && connections.IsListening {
 				status = "监听"
 				statusColor = tablewriter.Colors{tablewriter.FgGreenColor}
 				connCount = connections.Connections
@@ -577,7 +577,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 			status := "关闭"
 			statusColor := tablewriter.Colors{tablewriter.FgRedColor}
 			connCount := 0
-			if connections != nil && connections.Connections > 0 {
+			if connections != nil && connections.IsListening {
 				status = "监听"
 				statusColor = tablewriter.Colors{tablewriter.FgGreenColor}
 				connCount = connections.Connections
