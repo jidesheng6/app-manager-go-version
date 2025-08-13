@@ -147,40 +147,68 @@ app-manager restart myapp
 
 ```ini
 [global]
-project_root = "/path/to/project"
-java_path = "java"
+# 项目根目录 [必填]
+project_root="/path/to/project"
+# Java执行路径 [选填，默认：java]
+java_path="java"
 
 [nacos]
-nacos_server = ""
-nacos_namespace = ""
+# Nacos服务器地址 [选填]
+nacos_server=""
+# Nacos命名空间 [选填]
+nacos_namespace=""
 
 [application]
-app_type = "mixed" ; jar, war, mixed
-jvm_params = "-Xms512m -Xmx1024m"
-startup_delay = 0
-default_priority = 100
+# 应用程序类型 [选填，默认：mixed]
+# 可选值：jar, war, mixed
+app_type="mixed"
+# JVM参数 [选填]
+jvm_params="-Xms512m -Xmx1024m -XX:+UseG1GC"
+# 启动间隔时间(秒) [选填，默认：0]
+startup_delay=0
+# 默认优先级 [选填，默认：100]
+default_priority=100
 
 [applications]
-; 单个应用的特殊配置，格式为：appName.priority 和 appName.delay
-; 例如:
-; my-app-1.priority = 10
-; my-app-1.delay = 5
-; my-app-2.priority = 20
+# 单个应用的特殊配置，格式为：appName.priority 和 appName.startup_delay
+# 例如:
+# my-app-1.priority=10
+# my-app-1.startup_delay=5
+# my-app-2.priority=20
+
+[monitoring]
+# 启用磁盘I/O监控 [选填，默认：false]
+enable_disk_io=false
+# 启用网络监控 [选填，默认：false]
+enable_network=false
+# 启用端口状态监控 [选填，默认：false]
+enable_port_stats=false
+# 监控端口列表(逗号分隔) [选填]
+monitor_ports="8080,8081,8082"
 
 [backup]
-backup_prefix = "backup"
-backup_retention_days = 7
+# 备份文件前缀 [选填，默认：backup]
+backup_prefix="backup"
+# 备份保留天数 [选填，默认：7]
+backup_retention_days=7
 
 [logrotate]
-logrotate_size = "10MB"
-logrotate_cycle = "daily"
-logrotate_rotate = 5
+# 日志文件大小阈值 [选填，默认：10MB]
+logrotate_size="10MB"
+# 日志轮转周期 [选填，默认：daily]
+logrotate_cycle="daily"
+# 保留的日志文件数量 [选填，默认：5]
+logrotate_rotate=5
 
 [systemd]
-service_restart = "always"
-service_restart_sec = 10
-service_timeout_start_sec = 60
-service_timeout_stop_sec = 30
+# 服务重启策略 [选填，默认：always]
+service_restart="always"
+# 服务重启间隔(秒) [选填，默认：10]
+service_restart_sec=10
+# 服务启动超时时间(秒) [选填，默认：60]
+service_timeout_start_sec=60
+# 服务停止超时时间(秒) [选填，默认：30]
+service_timeout_stop_sec=30
 ```
 
 ## 使用场景
@@ -291,13 +319,19 @@ go build -o app-manager main.go
 
 ## 更新日志
 
-### v1.0.0
-- 初始版本发布
-- 完整的应用生命周期管理
-- 项目初始化和配置管理
-- 日志查看和轮转功能
-- 备份和恢复功能
-- Systemd服务集成
+### v1.0.0 (2025-01-14)
+- 🎉 初始版本发布
+- ✨ 完整的Java应用生命周期管理（启动、停止、重启、状态查看）
+- 🚀 项目初始化和INI格式配置管理
+- 📊 交互式状态查看，支持实时系统信息显示
+- 📝 日志查看和自动轮转功能
+- 💾 项目备份和恢复功能
+- 🔧 Systemd服务集成和管理
+- 🎯 应用启动优先级控制
+- 📈 系统监控功能（CPU、内存、磁盘、网络）
+- 🌐 Nacos配置中心集成支持
+- 🎨 彩色日志输出和用户友好的界面
+- 🔒 安全的进程管理和PID文件处理
 
 ## 支持
 
