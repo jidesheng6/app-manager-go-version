@@ -75,11 +75,11 @@ func checkRunningApplications() error {
 	if len(runningApps) > 0 {
 		logger.Warning("检测到以下应用正在运行：")
 		for _, app := range runningApps {
-			logger.Printf("  • %s (PID: %d)", app.Name, app.PID)
+			logger.Info("  • %s (PID: %d)", app.Name, app.PID)
 		}
 		logger.Println("")
 		logger.Warning("创建systemd服务前，请先停止所有运行中的应用：")
-		logger.Printf("  app-manager-go-v1 stop\n")
+		logger.Info("  app-manager-go-v1 stop")
 		logger.Println("")
 		logger.Info("这样可以避免与systemd服务管理产生冲突")
 		return fmt.Errorf("请先停止所有运行中的应用，然后重新创建服务")

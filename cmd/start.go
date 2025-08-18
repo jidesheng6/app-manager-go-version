@@ -4,6 +4,9 @@ import (
 	"app-manager-go-v1/internal/logger"
 	"app-manager-go-v1/internal/services"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -100,8 +103,8 @@ var startCmd = &cobra.Command{
 			
 			if daemon {
 				logger.Info("进入守护模式，程序将持续运行...")
-				// 在这里阻塞，直到接收到终止信号
-				select {}
+				// 等待信号并优雅退出
+				waitForSignal()
 			}
 		} else {
 			// 启动指定应用
@@ -130,21 +133,10 @@ func startSingleApplication(appService *services.ApplicationService, appName str
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
 	
-	// 查找应用
-	app := apps.FindByName(appName)
+	// 查找应用（支持交互式选择）
+	app := findApplicationWithInteractiveSelection(apps, appName)
 	if app == nil {
-		// 尝试模糊匹配
-		matchedApps := apps.FindByPattern(appName)
-		if len(matchedApps) == 0 {
-			return fmt.Errorf("未找到应用: %s", appName)
-		} else if len(matchedApps) > 1 {
-			logger.Error("找到多个匹配的应用:")
-			for _, app := range matchedApps {
-				logger.Printf("  - %s", app.Name)
-			}
-			return fmt.Errorf("请指定更精确的应用名称")
-		}
-		app = matchedApps[0]
+		return fmt.Errorf("未找到应用: %s", appName)
 	}
 	
 	// 检查应用状态
@@ -170,4 +162,36 @@ func startSingleApplication(appService *services.ApplicationService, appName str
 	}
 	
 	return nil
+}
+
+// waitForSignal 等待终止信号并执行优雅停机
+func waitForSignal() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	
+	// 阻塞等待信号
+	<-c
+	
+	logger.Info("接收到关闭信号，正在优雅地停止所有应用...")
+	appService := services.NewApplicationService()
+	apps, err := appService.DiscoverApplications()
+	if err != nil {
+		logger.Error("发现应用失败: %v", err)
+		os.Exit(1)
+	}
+
+	runningApps := apps.Running()
+	if len(runningApps) == 0 {
+		logger.Info("没有正在运行的应用")
+		os.Exit(0)
+	}
+	
+	logger.Info("正在停止 %d 个运行中的应用...", len(runningApps))
+	for _, app := range runningApps {
+		if err := appService.StopApplication(app); err != nil {
+			logger.Error("停止应用 %s 失败: %v", app.Name, err)
+		}
+	}
+	logger.Success("所有应用已停止。")
+	os.Exit(0)
 }

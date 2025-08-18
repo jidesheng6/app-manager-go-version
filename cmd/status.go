@@ -63,14 +63,6 @@ var statusCmd = &cobra.Command{
 				handleError(err, 1)
 			}
 		} else {
-			// 禁用全局信号处理器，并确保在退出时恢复
-			if DisableSignalHandling != nil {
-				DisableSignalHandling()
-			}
-			if EnableSignalHandling != nil {
-				defer EnableSignalHandling()
-			}
-
 			// 查看所有应用状态并进入交互模式
 			if err := showAllApplicationsStatusWithInteractive(appService); err != nil {
 				handleError(err, 1)
@@ -491,7 +483,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 	logger.Title("端口监控状态")
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"端口", "协议", "状态", "连接数", "类型", "说明"})
+	table.SetHeader([]string{"端口", "协议", "状态", "连接数", "唯一IP", "类型", "说明"})
 	table.SetBorder(true)
 	table.SetRowLine(false)
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
@@ -502,6 +494,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 
 	// 设置表头颜色
 	headerColors := []tablewriter.Colors{
+		{tablewriter.Bold, tablewriter.FgCyanColor},
 		{tablewriter.Bold, tablewriter.FgCyanColor},
 		{tablewriter.Bold, tablewriter.FgCyanColor},
 		{tablewriter.Bold, tablewriter.FgCyanColor},
@@ -538,10 +531,12 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 			status := "关闭"
 			statusColor := tablewriter.Colors{tablewriter.FgRedColor}
 			connCount := 0
+			uniqueIPCount := 0
 			if connections != nil && connections.IsListening {
 				status = "监听"
 				statusColor = tablewriter.Colors{tablewriter.FgGreenColor}
 				connCount = connections.Connections
+				uniqueIPCount = connections.UniqueIPs
 				totalConnections += connections.Connections
 			}
 
@@ -550,6 +545,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 				"TCP",
 				status,
 				fmt.Sprintf("%d", connCount),
+				fmt.Sprintf("%d", uniqueIPCount),
 				"通用",
 				"配置监控端口",
 			}
@@ -559,6 +555,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 				{},
 				{},
 				statusColor,
+				{},
 				{},
 				{},
 				{},
@@ -577,10 +574,12 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 			status := "关闭"
 			statusColor := tablewriter.Colors{tablewriter.FgRedColor}
 			connCount := 0
+			uniqueIPCount := 0
 			if connections != nil && connections.IsListening {
 				status = "监听"
 				statusColor = tablewriter.Colors{tablewriter.FgGreenColor}
 				connCount = connections.Connections
+				uniqueIPCount = connections.UniqueIPs
 				totalConnections += connections.Connections
 			}
 
@@ -589,6 +588,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 				"HTTP",
 				status,
 				fmt.Sprintf("%d", connCount),
+				fmt.Sprintf("%d", uniqueIPCount),
 				"OpenResty",
 				"前端在线人数",
 			}
@@ -598,6 +598,7 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 				{},
 				{},
 				statusColor,
+				{},
 				{},
 				{tablewriter.Bold, tablewriter.FgYellowColor},
 				{tablewriter.Bold, tablewriter.FgYellowColor},
@@ -614,10 +615,12 @@ func showPortConnectionsTable(appService *services.ApplicationService) error {
 		"-",
 		fmt.Sprintf("总计: %d", totalConnections),
 		"-",
+		"-",
 		"端口监控统计",
 	}
 
 	summaryColors := []tablewriter.Colors{
+		{tablewriter.Bold, tablewriter.FgYellowColor},
 		{tablewriter.Bold, tablewriter.FgYellowColor},
 		{tablewriter.Bold, tablewriter.FgYellowColor},
 		{tablewriter.Bold, tablewriter.FgYellowColor},
@@ -827,7 +830,7 @@ func formatBytes(bytes int64) string {
 // showAllApplicationsStatusWithInteractive 显示所有应用状态并进入交互模式
 func showAllApplicationsStatusWithInteractive(appService *services.ApplicationService) error {
 	// 初始化 readline
-	historyFile := filepath.Join(os.TempDir(), "app-manager-history.tmp")
+	historyFile := filepath.Join(config.GetTempDir(), "app-manager-history.tmp")
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          "\033[36m[交互模式]\033[0m 请输入命令 > ",
 		HistoryFile:     historyFile,

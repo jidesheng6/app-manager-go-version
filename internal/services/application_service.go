@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -136,7 +137,7 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	}
 
 	// 创建日志文件
-	logFile, err := os.OpenFile(app.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile(app.LogFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("创建日志文件失败: %w", err)
 	}
@@ -148,6 +149,10 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	cmd.Stderr = logFile
 	// 设置环境变量
 	cmd.Env = os.Environ()
+	// 设置进程组，使Java进程独立于父进程信号（仅Linux）
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 
 	// 添加Nacos环境变量（如果启用）
 	if config.IsNacosEnabled() {
@@ -820,13 +825,19 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 		}
 	}
 
-	// 尝试模糊匹配
+	// 尝试更精确的模糊匹配
 	files, err := os.ReadDir(configDir)
 	if err != nil {
 		return ""
 	}
 
 	appNameLower := strings.ToLower(appName)
+	// 移除.jar或.war后缀进行匹配
+	appNameWithoutExt := strings.TrimSuffix(strings.TrimSuffix(appNameLower, ".jar"), ".war")
+	
+	var bestMatch string
+	var bestScore int
+	
 	for _, file := range files {
 		if file.IsDir() {
 			continue
@@ -836,21 +847,58 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 		for _, ext := range extensions {
 			if strings.HasSuffix(fileName, ext) {
 				nameWithoutExt := strings.TrimSuffix(fileName, ext)
-				if strings.Contains(nameWithoutExt, appNameLower) ||
-					strings.Contains(appNameLower, nameWithoutExt) {
-					return filepath.Join(configDir, file.Name())
+				
+				// 计算匹配分数，优先选择最佳匹配
+				score := calculateConfigMatchScore(appNameWithoutExt, nameWithoutExt)
+				if score > bestScore {
+					bestScore = score
+					bestMatch = filepath.Join(configDir, file.Name())
 				}
 			}
 		}
 	}
 
-	return ""
+	return bestMatch
+}
+
+// calculateConfigMatchScore 计算配置文件匹配分数
+// 返回值越高表示匹配度越好，0表示不匹配
+func calculateConfigMatchScore(appName, configName string) int {
+	// 精确匹配得分最高
+	if appName == configName {
+		return 1000
+	}
+	
+	// 应用名以配置名开头（如party-auth匹配party-auth.yml）
+	if strings.HasPrefix(appName, configName) {
+		return 900
+	}
+	
+	// 配置名以应用名开头（如party匹配party-auth.jar）
+	if strings.HasPrefix(configName, appName) {
+		return 800
+	}
+	
+	// 应用名包含配置名，但要求配置名长度至少为应用名的一半
+	// 这样可以避免party.yml匹配到party-auth.jar的情况
+	if strings.Contains(appName, configName) && len(configName) >= len(appName)/2 {
+		return 700
+	}
+	
+	// 配置名包含应用名，但要求应用名长度至少为配置名的一半
+	if strings.Contains(configName, appName) && len(appName) >= len(configName)/2 {
+		return 600
+	}
+	
+	// 不匹配
+	return 0
 }
 
 // PortConnectionStats 端口连接统计信息
 type PortConnectionStats struct {
 	Port        int    `json:"port"`
 	Connections int    `json:"connections"`
+	UniqueIPs   int    `json:"unique_ips"`
 	Type        string `json:"type"`
 	IsListening bool   `json:"is_listening"`
 	Description string `json:"description"`
@@ -906,8 +954,9 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 		}
 	}
 
-	// 如果找到了端口信息，获取已建立连接数
+	// 如果找到了端口信息，获取已建立连接数和唯一IP数
 	establishedConnections := 0
+	uniqueIPs := make(map[string]bool)
 	if isListening {
 		cmd = exec.Command("ss", "-tun")
 		output, err = cmd.Output()
@@ -920,13 +969,19 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 				}
 
 				estabFields := strings.Fields(line)
-				if len(estabFields) >= 5 {
+				if len(estabFields) >= 6 {
 					state := strings.ToUpper(estabFields[1])
 					localAddr := estabFields[4]
+					remoteAddr := estabFields[5]
 
 					portPattern := fmt.Sprintf(":%d", port)
 					if strings.HasSuffix(localAddr, portPattern) && state == "ESTAB" {
 						establishedConnections++
+						
+						// 提取远程IP地址进行去重
+						if remoteIP := extractIPFromAddress(remoteAddr); remoteIP != "" {
+							uniqueIPs[remoteIP] = true
+						}
 					}
 				}
 			}
@@ -934,15 +989,30 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 	}
 
 	// 生成描述
-	description := s.generatePortDescription(port, isListening, establishedConnections, connections)
+	description := s.generatePortDescription(port, isListening, establishedConnections, connections, len(uniqueIPs))
 
 	return &PortConnectionStats{
 		Port:        port,
-		Connections: establishedConnections, // 返回已建立连接数而不是总连接数
+		Connections: establishedConnections,
+		UniqueIPs:   len(uniqueIPs),
 		Type:        portType,
 		IsListening: isListening,
 		Description: description,
 	}, nil
+}
+
+// extractIPFromAddress 从地址字符串中提取IP地址
+func extractIPFromAddress(addr string) string {
+	// 处理IPv4地址格式: 192.168.1.1:8080
+	if lastColon := strings.LastIndex(addr, ":"); lastColon != -1 {
+		ip := addr[:lastColon]
+		// 移除IPv6地址的方括号: [::1]:8080 -> ::1
+		if strings.HasPrefix(ip, "[") && strings.HasSuffix(ip, "]") {
+			ip = ip[1 : len(ip)-1]
+		}
+		return ip
+	}
+	return addr
 }
 
 // tryNetstatCommand 尝试使用netstat命令获取端口信息（作为ss命令的回退方案）
@@ -958,6 +1028,7 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 	portType := "TCP"
 	isListening := false
 	establishedConnections := 0
+	uniqueIPs := make(map[string]bool)
 
 	// 解析netstat输出
 	lines := strings.Split(string(output), "\n")
@@ -980,8 +1051,12 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 			portType = "TCP"
 		}
 
-		// 获取本地地址
+		// 获取本地地址和远程地址
 		localAddr := fields[1]
+		remoteAddr := ""
+		if len(fields) >= 3 {
+			remoteAddr = fields[2]
+		}
 
 		// 改进的端口匹配逻辑 - 支持Linux格式
 		portPattern := fmt.Sprintf(":%d", port)
@@ -1008,6 +1083,12 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 						isListening = true
 					case "ESTABLISHED":
 						establishedConnections++
+						// 提取远程IP地址进行去重
+						if remoteAddr != "" && remoteAddr != "0.0.0.0:0" && remoteAddr != "*:*" {
+							if remoteIP := extractIPFromAddress(remoteAddr); remoteIP != "" {
+								uniqueIPs[remoteIP] = true
+							}
+						}
 					}
 				}
 			}
@@ -1015,11 +1096,12 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 	}
 
 	// 生成描述
-	description := s.generatePortDescription(port, isListening, establishedConnections, connections)
+	description := s.generatePortDescription(port, isListening, establishedConnections, connections, len(uniqueIPs))
 
 	return &PortConnectionStats{
 		Port:        port,
-		Connections: establishedConnections, // 返回已建立连接数而不是总连接数
+		Connections: establishedConnections,
+		UniqueIPs:   len(uniqueIPs),
 		Type:        portType,
 		IsListening: isListening,
 		Description: description,
@@ -1027,7 +1109,7 @@ func (s *ApplicationService) tryNetstatCommand(port int) (*PortConnectionStats, 
 }
 
 // generatePortDescription 生成端口描述信息
-func (s *ApplicationService) generatePortDescription(port int, isListening bool, establishedConnections int, totalConnections int) string {
+func (s *ApplicationService) generatePortDescription(port int, isListening bool, establishedConnections int, totalConnections int, uniqueIPs int) string {
 	// 设置端口类型描述
 	portDescription := ""
 	switch port {
@@ -1059,7 +1141,11 @@ func (s *ApplicationService) generatePortDescription(port int, isListening bool,
 	if isListening {
 		// 如果端口在监听，显示服务类型和连接数
 		if establishedConnections > 0 {
-			return fmt.Sprintf("%s (活跃连接: %d)", portDescription, establishedConnections)
+			if uniqueIPs > 0 {
+				return fmt.Sprintf("%s (活跃连接: %d, 唯一IP: %d)", portDescription, establishedConnections, uniqueIPs)
+			} else {
+				return fmt.Sprintf("%s (活跃连接: %d)", portDescription, establishedConnections)
+			}
 		} else {
 			return portDescription
 		}

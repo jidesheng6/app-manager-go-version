@@ -619,6 +619,18 @@ func GetBackupDir() string {
 	return filepath.Join(GetProjectRoot(), "project_backup")
 }
 
+// GetTempDir 获取项目临时目录路径
+// 返回 {PROJECT_ROOT}/.tmp 目录，如果目录不存在则自动创建
+func GetTempDir() string {
+	tempDir := filepath.Join(GetProjectRoot(), ".tmp")
+	// 确保临时目录存在
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		// 如果创建失败，记录错误但不中断程序
+		fmt.Printf("Warning: Failed to create temp directory %s: %v\n", tempDir, err)
+	}
+	return tempDir
+}
+
 // getAllNetworkIPs 获取所有网卡的IP地址
 func getAllNetworkIPs() string {
 	var ips []string

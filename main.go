@@ -30,15 +30,11 @@ func main() {
 	cmd.SetVersionInfo(Version, Date, Author, Description)
 
 	// 设置优雅关机
-	signalChan := setupGracefulShutdown()
+	// 注意：这里暂时设置为false，因为无法在此处直接获取daemon标志状态
+	// 实际的守护进程信号处理将在start命令中单独处理
+	_ = setupGracefulShutdown(false)
 
-	// 将信号处理函数连接到cmd包
-	cmd.DisableSignalHandling = func() {
-		signal.Stop(signalChan)
-	}
-	cmd.EnableSignalHandling = func() {
-		signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
-	}
+	// 信号处理函数已移除，现在由各模式单独处理
 
 	// 执行命令
 	if err := cmd.Execute(); err != nil {
@@ -48,33 +44,40 @@ func main() {
 	}
 }
 
-func setupGracefulShutdown() chan os.Signal {
+func setupGracefulShutdown(isDaemonMode bool) chan os.Signal {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		for range c {
-			logger.Info("接收到关闭信号，正在优雅地停止所有应用...")
-			appService := services.NewApplicationService()
-			apps, err := appService.DiscoverApplications()
-			if err != nil {
-				logger.Error("发现应用失败: %v", err)
-				os.Exit(1)
-			}
+			if isDaemonMode {
+				// 守护进程模式：停止所有应用并退出
+				logger.Info("接收到关闭信号，正在优雅地停止所有应用...")
+				appService := services.NewApplicationService()
+				apps, err := appService.DiscoverApplications()
+				if err != nil {
+					logger.Error("发现应用失败: %v", err)
+					os.Exit(1)
+				}
 
-			runningApps := apps.Running()
-			if len(runningApps) == 0 {
-				logger.Info("没有正在运行的应用")
+				runningApps := apps.Running()
+				if len(runningApps) == 0 {
+					logger.Info("没有正在运行的应用")
+					os.Exit(0)
+				}
+				
+				logger.Info("正在停止 %d 个运行中的应用...", len(runningApps))
+				for _, app := range runningApps {
+					if err := appService.StopApplication(app); err != nil {
+						logger.Error("停止应用 %s 失败: %v", app.Name, err)
+					}
+				}
+				logger.Success("所有应用已停止。")
+				os.Exit(0)
+			} else {
+				// 非守护进程模式：仅退出程序，不影响Java应用
+				logger.Info("接收到关闭信号，正在退出程序...")
 				os.Exit(0)
 			}
-			
-			logger.Info("正在停止 %d 个运行中的应用...", len(runningApps))
-			for _, app := range runningApps {
-				if err := appService.StopApplication(app); err != nil {
-					logger.Error("停止应用 %s 失败: %v", app.Name, err)
-				}
-			}
-			logger.Success("所有应用已停止。")
-			os.Exit(0)
 		}
 	}()
 	return c

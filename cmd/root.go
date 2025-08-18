@@ -36,11 +36,8 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-// Signal-handling functions, to be set by the main package
-var (
-	DisableSignalHandling func()
-	EnableSignalHandling  func()
-)
+// Signal-handling functions removed as they are no longer needed
+// after refactoring signal handling to be mode-specific
 
 // Execute 执行根命令
 func Execute() error {

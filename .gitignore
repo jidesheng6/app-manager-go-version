@@ -86,3 +86,5 @@ test-app/
 /testdata/
 /test-results/
 /coverage.out
+app-manager
+app-manager*.exe

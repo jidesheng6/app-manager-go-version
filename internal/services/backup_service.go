@@ -257,8 +257,8 @@ func (s *BackupService) shouldSkipFile(path string, info os.FileInfo) bool {
 		return true
 	}
 	
-	// 跳过日志文件（可选）
-	if strings.Contains(path, "logs") && (strings.HasSuffix(name, ".log") || strings.HasSuffix(name, ".out")) {
+	// 完全跳过logs和rotate_logs目录及其所有内容
+	if strings.Contains(path, "logs") || strings.Contains(path, "rotate_logs") {
 		return true
 	}
 	

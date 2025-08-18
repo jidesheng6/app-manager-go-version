@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"regexp"
@@ -57,39 +58,29 @@ func (s *LogService) ViewLog(appName string, lines int, follow bool) error {
 	logger.Println("")
 
 	if follow {
-		return s.followLog(app.LogFile, lines)
+		return s.followLogWithTail(app.LogFile, lines)
 	}
 
-	return s.tailLog(app.LogFile, lines)
+	return s.tailLogWithCommand(app.LogFile, lines)
 }
 
-// tailLog 显示日志文件的最后几行
-func (s *LogService) tailLog(logFile string, lines int) error {
-	file, err := os.Open(logFile)
+// tailLogWithCommand 使用Linux原生tail命令显示日志文件的最后几行
+func (s *LogService) tailLogWithCommand(logFile string, lines int) error {
+	// 使用tail命令显示最后几行
+	cmd := exec.Command("tail", "-n", fmt.Sprintf("%d", lines), logFile)
+	
+	// 获取命令输出
+	output, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("打开日志文件失败: %w", err)
-	}
-	defer file.Close()
-
-	// 读取所有行
-	var allLines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		allLines = append(allLines, scanner.Text())
+		return fmt.Errorf("执行tail命令失败: %w", err)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("读取日志文件失败: %w", err)
-	}
-
-	// 显示最后几行
-	start := len(allLines) - lines
-	if start < 0 {
-		start = 0
-	}
-
-	for i := start; i < len(allLines); i++ {
-		s.printLogLine(allLines[i])
+	// 按行处理输出并着色
+	lines_output := strings.Split(string(output), "\n")
+	for _, line := range lines_output {
+		if strings.TrimSpace(line) != "" {
+			s.printLogLine(line)
+		}
 	}
 
 	return nil
@@ -205,38 +196,30 @@ func (ls *LogService) getProjectRoot() (string, error) {
 	return "", fmt.Errorf("未找到项目根目录")
 }
 
-// followLog 实时跟踪日志文件
-func (s *LogService) followLog(logFile string, lines int) error {
-	// 先显示最后几行
-	if err := s.tailLog(logFile, lines); err != nil {
-		return err
-	}
-
+// followLogWithTail 使用Linux原生tail -f命令实时跟踪日志文件
+func (s *LogService) followLogWithTail(logFile string, lines int) error {
 	logger.Info("开始实时跟踪日志文件 (按 Ctrl+C 退出)...")
 	logger.Println("")
 
-	file, err := os.Open(logFile)
+	// 使用tail -f命令实时跟踪日志
+	cmd := exec.Command("tail", "-f", "-n", fmt.Sprintf("%d", lines), logFile)
+	
+	// 获取命令的stdout管道
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("打开日志文件失败: %w", err)
-	}
-	defer file.Close()
-
-	// 移动到文件末尾
-	stat, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("获取文件信息失败: %w", err)
+		return fmt.Errorf("创建stdout管道失败: %w", err)
 	}
 
-	_, err = file.Seek(stat.Size(), 0)
-	if err != nil {
-		return fmt.Errorf("移动文件指针失败: %w", err)
+	// 启动命令
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("启动tail命令失败: %w", err)
 	}
 
 	// 创建上下文和信号处理
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 设置信号处理，只捕获这个命令的中断信号
+	// 设置信号处理
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -244,34 +227,37 @@ func (s *LogService) followLog(logFile string, lines int) error {
 	go func() {
 		select {
 		case <-sigChan:
-			logger.Info("\n收到中断信号，停止日志跟踪...")
+			logger.Info("\n收到中断信号，正在退出日志跟踪模式...")
+			// 终止tail命令
+			if cmd.Process != nil {
+				cmd.Process.Kill()
+			}
 			cancel()
 		case <-ctx.Done():
 		}
 	}()
 
-	scanner := bufio.NewScanner(file)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			// 清理信号处理
-			signal.Stop(sigChan)
-			close(sigChan)
-			logger.Success("日志跟踪已安全退出")
-			return nil
-		case <-ticker.C:
-			// 定期检查新内容
-			for scanner.Scan() {
+	// 读取tail命令的输出
+	scanner := bufio.NewScanner(stdout)
+	go func() {
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			default:
 				s.printLogLine(scanner.Text())
 			}
-			if err := scanner.Err(); err != nil {
-				logger.Warning("读取日志文件时出错: %v", err)
-				return err
-			}
 		}
+	}()
+
+	// 等待信号或命令结束
+	select {
+	case <-ctx.Done():
+		// 清理信号处理
+		signal.Stop(sigChan)
+		close(sigChan)
+		logger.Success("日志跟踪模式已安全退出")
+		return nil
 	}
 }
 

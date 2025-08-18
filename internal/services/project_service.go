@@ -900,13 +900,14 @@ func (s *ProjectService) getDetailedConfigTemplate() (string, error) {
 }
 
 // createDirectoryStructure 创建目录结构
-func (s *ProjectService) createDirectoryStructure(projectRoot string) error {
+func (ps *ProjectService) createDirectoryStructure(projectRoot string) error {
 	directories := []string{
 		"project_backend",
 		"project_frontend",
 		"project_backup",
 		"project_update",
 		"project_cache",
+		".tmp",
 		"project_backend/config",
 		"project_backend/logs",
 		"project_backend/pids",
