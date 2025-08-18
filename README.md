@@ -22,6 +22,11 @@
 - **日志轮转**: 自动日志文件轮转和清理
 - **彩色输出**: 根据日志级别自动着色显示
 
+### 🌐 网络监控
+- **端口连接统计**: 实时监控应用端口的连接数和状态
+- **IP去重统计**: 自动统计连接到各端口的唯一IP地址数量
+- **连接详情**: 显示端口监听状态、连接数、唯一IP数等详细信息
+
 ### 💾 备份功能
 - **项目备份**: 完整的项目文件备份
 - **自动清理**: 根据配置自动清理过期备份
@@ -117,7 +122,7 @@ app-manager restart myapp
 | `start` | 启动应用 | `app-manager start myapp` |
 | `stop` | 停止应用 | `app-manager stop myapp` |
 | `restart` | 重启应用 | `app-manager restart myapp` |
-| `status` | 查看应用状态（支持交互模式） | `app-manager status` |
+| `status` | 查看应用状态（支持交互模式，包含端口连接和IP去重统计） | `app-manager status` |
 | `logs` | 查看应用日志 | `app-manager logs myapp -f` |
 
 ### 高级命令
@@ -322,6 +327,13 @@ go build -o app-manager main.go
 本项目采用MIT许可证，详见[LICENSE](LICENSE)文件。
 
 ## 更新日志
+
+### v1.0.1 (2025-01-14)
+- 🌐 **新增端口连接IP去重功能**
+  - 在端口监控表格中新增"唯一IP"列，显示连接到各端口的去重IP数量
+  - 支持IPv4和IPv6地址的智能解析和去重统计
+  - 增强`ss`和`netstat`命令解析，提取远程IP地址进行统计
+  - 优化端口描述信息，包含唯一IP数量显示
 
 ### v1.0.0 (2025-01-14)
 - 🎉 初始版本发布
