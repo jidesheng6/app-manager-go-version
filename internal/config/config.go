@@ -359,6 +359,23 @@ func getSearchDirs() []string {
 				uniqueDirs[parentBackendDir] = struct{}{}
 			}
 		}
+
+		// 3. 搜索当前目录下的所有子目录，查找可能的项目目录
+		// 这解决了在项目根目录运行时无法找到子目录中配置文件的问题
+		if entries, err := os.ReadDir(pwd); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					subDir := filepath.Join(pwd, entry.Name())
+					// 检查子目录下的 project_backend
+					subBackendDir := filepath.Join(subDir, "project_backend")
+					if _, err := os.Stat(subBackendDir); err == nil {
+						uniqueDirs[subBackendDir] = struct{}{}
+						// 也添加子目录本身
+						uniqueDirs[subDir] = struct{}{}
+					}
+				}
+			}
+		}
 	}
 
 	// 将 map 的键转换为切片
