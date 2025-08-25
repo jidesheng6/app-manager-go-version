@@ -133,10 +133,21 @@ func startSingleApplication(appService *services.ApplicationService, appName str
 		return fmt.Errorf("发现应用失败: %w", err)
 	}
 	
-	// 查找应用（支持交互式选择）
-	app := findApplicationWithInteractiveSelection(apps, appName)
+	// 查找应用
+	app := apps.FindByName(appName)
 	if app == nil {
-		return fmt.Errorf("未找到应用: %s", appName)
+		// 尝试模糊匹配
+		matchedApps := apps.FindByPattern(appName)
+		if len(matchedApps) == 0 {
+			return fmt.Errorf("未找到应用: %s", appName)
+		} else if len(matchedApps) > 1 {
+			logger.Error("找到多个匹配的应用:")
+			for _, app := range matchedApps {
+				logger.Printf("  - %s", app.Name)
+			}
+			return fmt.Errorf("请指定更精确的应用名称")
+		}
+		app = matchedApps[0]
 	}
 	
 	// 检查应用状态

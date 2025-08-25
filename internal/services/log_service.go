@@ -256,7 +256,7 @@ func (s *LogService) followLogWithTail(logFile string, lines int) error {
 		// 清理信号处理
 		signal.Stop(sigChan)
 		close(sigChan)
-		logger.Success("日志跟踪模式已安全退出")
+		logger.Success("日志跟踪已安全退出")
 		return nil
 	}
 }
