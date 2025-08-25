@@ -562,9 +562,21 @@ func GetConfigFileName() string {
 
 // IsProjectInitialized 检查项目是否已初始化
 func IsProjectInitialized() bool {
-	// 检查配置文件是否存在
-	configFile := findConfigFile()
-	if configFile == "" {
+	// 首先检查是否已经加载了配置文件
+	var configFile string
+	if ConfigFile != "" {
+		// 使用已加载的配置文件
+		configFile = ConfigFile
+	} else {
+		// 尝试查找配置文件
+		configFile = findConfigFile()
+		if configFile == "" {
+			return false
+		}
+	}
+
+	// 检查配置文件是否真实存在
+	if _, err := os.Stat(configFile); os.IsNotExist(err) {
 		return false
 	}
 
