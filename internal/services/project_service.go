@@ -326,12 +326,13 @@ app_type="{{APP_TYPE}}"
 # 说明：指定应用的配置加载方式
 # 可选值：
 #   spring_local  - 从本地config目录读取配置，使用spring.config.location
-#   spring_cloud  - 从Spring Cloud配置中心加载，使用spring.cloud.bootstrap.location从
-#                   config_cloud目录加载各个应用的bootstrap文件
+#   spring_cloud  - Spring Cloud微服务模式，使用bootstrap配置文件连接配置中心
 # 功能说明：
 #   spring_local:  适用于传统单体应用，配置文件放在project_backend/config目录
-#   spring_cloud:  适用于Spring Cloud微服务架构，配置文件放在project_backend/config_cloud目录
-#                  支持模糊名称匹配，例如：myapp-1.0.jar 会自动匹配 myapp-bootstrap.yml
+#   spring_cloud:  适用于Spring Cloud微服务架构，支持模糊名称匹配
+#                  应用会自动寻找bootstrap.yml/bootstrap.properties文件
+#                  bootstrap文件中包含配置中心的连接信息
+#                  例如：myapp-1.0.jar 会自动匹配 myapp-bootstrap.yml
 # 示例：
 #   application_config_type=spring_local   # 传统单体应用
 #   application_config_type=spring_cloud   # Spring Cloud微服务

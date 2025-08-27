@@ -122,50 +122,31 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 			// 根据application_config_type选择配置方式
 			switch s.config.Application.ApplicationConfigType {
 			case "spring_cloud":
-				// Spring Cloud模式：使用bootstrap配置文件
-				args = append(args, "-Dspring.cloud.bootstrap.location=file:"+app.ConfigFile)
+				// Spring Cloud模式：使用标准的bootstrap配置文件
+				// Spring Cloud会自动寻找bootstrap.yml，这里只是确保路径正确
 				logger.Info("使用Spring Cloud配置文件: %s", filepath.Base(app.ConfigFile))
-				
-				// 同时添加config_cloud目录到配置路径
-				configCloudDir := filepath.Join(config.GetBackendDir(), "config_cloud")
-				if _, err := os.Stat(configCloudDir); err == nil {
-					args = append(args, "-Dspring.cloud.config.server.native.search-locations=file:"+configCloudDir)
-					logger.Info("配置搜索目录: %s", "config_cloud/")
-				}
+				logger.Info("Spring Cloud将自动加载bootstrap配置")
 			case "spring_local":
 				fallthrough
 			default:
 				// Spring Local模式：使用传统的config.location
 				args = append(args, "-Dspring.config.location=file:"+app.ConfigFile)
 				logger.Info("使用本地配置文件: %s", filepath.Base(app.ConfigFile))
-				
-				// 同时添加config目录到配置路径
-				configDir := filepath.Join(config.GetBackendDir(), "config")
-				if _, err := os.Stat(configDir); err == nil {
-					args = append(args, "-Dspring.config.additional-location=file:"+configDir+"/")
-					logger.Info("额外配置目录: %s", "config/")
-				}
 			}
 		} else {
 			logger.Warning("配置文件不存在，跳过配置文件参数: %s", app.ConfigFile)
 		}
 	} else {
-		// 没有找到特定的配置文件，根据配置类型设置默认配置目录
+		// 没有找到特定的配置文件
 		switch s.config.Application.ApplicationConfigType {
 		case "spring_cloud":
-			configCloudDir := filepath.Join(config.GetBackendDir(), "config_cloud")
-			if _, err := os.Stat(configCloudDir); err == nil {
-				args = append(args, "-Dspring.cloud.config.server.native.search-locations=file:"+configCloudDir)
-				logger.Info("使用Spring Cloud配置目录: %s", "config_cloud/")
-			}
+			// Spring Cloud模式：让Spring Cloud自动寻找bootstrap配置
+			logger.Info("Spring Cloud模式：将自动搜索bootstrap配置文件")
 		case "spring_local":
 			fallthrough
 		default:
-			configDir := filepath.Join(config.GetBackendDir(), "config")
-			if _, err := os.Stat(configDir); err == nil {
-				args = append(args, "-Dspring.config.additional-location=file:"+configDir+"/")
-				logger.Info("使用本地配置目录: %s", "config/")
-			}
+			// Spring Local模式不需要额外的配置目录参数，Spring Boot会自动搜索
+			logger.Info("使用Spring Boot默认配置搜索路径")
 		}
 		logger.Info("使用应用内部默认配置，配置类型: %s", s.config.Application.ApplicationConfigType)
 	}
