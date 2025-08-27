@@ -322,6 +322,22 @@ func (s *ProjectService) getApplicationConfigTemplate() string {
 # 注意：不需要引号包围
 app_type="{{APP_TYPE}}"
 
+# 应用配置类型 [选填，默认：spring_local]
+# 说明：指定应用的配置加载方式
+# 可选值：
+#   spring_local  - 从本地config目录读取配置，使用spring.config.location
+#   spring_cloud  - 从Spring Cloud配置中心加载，使用spring.cloud.bootstrap.location从
+#                   config_cloud目录加载各个应用的bootstrap文件
+# 功能说明：
+#   spring_local:  适用于传统单体应用，配置文件放在project_backend/config目录
+#   spring_cloud:  适用于Spring Cloud微服务架构，配置文件放在project_backend/config_cloud目录
+#                  支持模糊名称匹配，例如：myapp-1.0.jar 会自动匹配 myapp-bootstrap.yml
+# 示例：
+#   application_config_type=spring_local   # 传统单体应用
+#   application_config_type=spring_cloud   # Spring Cloud微服务
+# 注意：不需要引号包围
+application_config_type="{{APPLICATION_CONFIG_TYPE}}"
+
 # JVM参数 [选填]
 # 说明：传递给Java虚拟机的参数，用于控制内存、GC、系统属性等
 # 格式：多个参数用空格分隔，整体用双引号包围
@@ -909,6 +925,7 @@ func (ps *ProjectService) createDirectoryStructure(projectRoot string) error {
 		"project_cache",
 		".tmp",
 		"project_backend/config",
+		"project_backend/config_cloud", // Spring Cloud配置目录
 		"project_backend/logs",
 		"project_backend/pids",
 		"project_backend/file_upload",
@@ -961,6 +978,7 @@ func (s *ProjectService) createINIConfigFile(configPath string) error {
 	content := strings.ReplaceAll(templateContent, "{{PROJECT_ROOT}}", s.config.Global.ProjectRoot)
 	content = strings.ReplaceAll(content, "{{JAVA_PATH}}", s.config.Global.JavaPath)
 	content = strings.ReplaceAll(content, "{{APP_TYPE}}", s.config.Application.AppType)
+	content = strings.ReplaceAll(content, "{{APPLICATION_CONFIG_TYPE}}", s.config.Application.ApplicationConfigType)
 	content = strings.ReplaceAll(content, "{{JVM_PARAMS}}", s.config.Application.JVMParams)
 	content = strings.ReplaceAll(content, "{{BACKUP_PREFIX}}", s.config.Backup.BackupPrefix)
 	content = strings.ReplaceAll(content, "{{BACKUP_RETENTION_DAYS}}", fmt.Sprintf("%d", s.config.Backup.BackupRetentionDays))
@@ -984,6 +1002,7 @@ func (s *ProjectService) printDirectoryStructure(projectRoot string) {
 	structure := fmt.Sprintf(`%s/
 ├── project_backend/     # 后端应用目录
 │   ├── config/          # 配置文件目录
+│   ├── config_cloud/    # Spring Cloud配置目录
 │   ├── logs/            # 日志文件目录
 │   ├── pids/            # PID文件目录
 │   ├── file_upload/     # 文件上传目录

@@ -21,6 +21,7 @@ var initCmd = &cobra.Command{
   project_root/
   ├── project_backend/          # 后端应用目录
   │   ├── config/              # 配置文件目录
+  │   ├── config_cloud/        # Spring Cloud配置目录
   │   ├── logs/                # 日志文件目录
   │   ├── pids/                # PID文件目录
   │   ├── file_upload/         # 文件上传目录

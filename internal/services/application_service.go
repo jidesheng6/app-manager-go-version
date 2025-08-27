@@ -119,13 +119,55 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	if app.ConfigFile != "" {
 		// 检查配置文件是否存在
 		if _, err := os.Stat(app.ConfigFile); err == nil {
-			args = append(args, "-Dspring.config.location=file:"+app.ConfigFile)
-			logger.Info("使用配置文件: %s", filepath.Base(app.ConfigFile))
+			// 根据application_config_type选择配置方式
+			switch s.config.Application.ApplicationConfigType {
+			case "spring_cloud":
+				// Spring Cloud模式：使用bootstrap配置文件
+				args = append(args, "-Dspring.cloud.bootstrap.location=file:"+app.ConfigFile)
+				logger.Info("使用Spring Cloud配置文件: %s", filepath.Base(app.ConfigFile))
+				
+				// 同时添加config_cloud目录到配置路径
+				configCloudDir := filepath.Join(config.GetBackendDir(), "config_cloud")
+				if _, err := os.Stat(configCloudDir); err == nil {
+					args = append(args, "-Dspring.cloud.config.server.native.search-locations=file:"+configCloudDir)
+					logger.Info("配置搜索目录: %s", "config_cloud/")
+				}
+			case "spring_local":
+				fallthrough
+			default:
+				// Spring Local模式：使用传统的config.location
+				args = append(args, "-Dspring.config.location=file:"+app.ConfigFile)
+				logger.Info("使用本地配置文件: %s", filepath.Base(app.ConfigFile))
+				
+				// 同时添加config目录到配置路径
+				configDir := filepath.Join(config.GetBackendDir(), "config")
+				if _, err := os.Stat(configDir); err == nil {
+					args = append(args, "-Dspring.config.additional-location=file:"+configDir+"/")
+					logger.Info("额外配置目录: %s", "config/")
+				}
+			}
 		} else {
 			logger.Warning("配置文件不存在，跳过配置文件参数: %s", app.ConfigFile)
 		}
 	} else {
-		logger.Info("未找到匹配的配置文件，使用应用内部默认配置")
+		// 没有找到特定的配置文件，根据配置类型设置默认配置目录
+		switch s.config.Application.ApplicationConfigType {
+		case "spring_cloud":
+			configCloudDir := filepath.Join(config.GetBackendDir(), "config_cloud")
+			if _, err := os.Stat(configCloudDir); err == nil {
+				args = append(args, "-Dspring.cloud.config.server.native.search-locations=file:"+configCloudDir)
+				logger.Info("使用Spring Cloud配置目录: %s", "config_cloud/")
+			}
+		case "spring_local":
+			fallthrough
+		default:
+			configDir := filepath.Join(config.GetBackendDir(), "config")
+			if _, err := os.Stat(configDir); err == nil {
+				args = append(args, "-Dspring.config.additional-location=file:"+configDir+"/")
+				logger.Info("使用本地配置目录: %s", "config/")
+			}
+		}
+		logger.Info("使用应用内部默认配置，配置类型: %s", s.config.Application.ApplicationConfigType)
 	}
 
 	// 添加JAR文件
@@ -808,7 +850,20 @@ func (s *ApplicationService) findPIDsByAppName(appName string) ([]int, error) {
 
 // findConfigFile 查找配置文件
 func (s *ApplicationService) findConfigFile(appName string) string {
-	configDir := config.GetConfigDir()
+	// 根据application_config_type决定配置目录
+	var configDir string
+	var expectedSuffix string
+	
+	switch s.config.Application.ApplicationConfigType {
+	case "spring_cloud":
+		configDir = filepath.Join(config.GetBackendDir(), "config_cloud")
+		expectedSuffix = "-bootstrap" // Spring Cloud使用bootstrap配置文件
+	case "spring_local":
+		fallthrough
+	default:
+		configDir = config.GetConfigDir() // 默认使用config目录
+		expectedSuffix = "" // 本地模式不需要特殊后缀
+	}
 
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
 		return ""
@@ -819,7 +874,14 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 
 	// 尝试精确匹配
 	for _, ext := range extensions {
-		configFile := filepath.Join(configDir, appName+ext)
+		var configFile string
+		if expectedSuffix != "" {
+			// Spring Cloud模式：查找带有bootstrap后缀的文件
+			configFile = filepath.Join(configDir, appName+expectedSuffix+ext)
+		} else {
+			// 本地模式：直接使用应用名
+			configFile = filepath.Join(configDir, appName+ext)
+		}
 		if _, err := os.Stat(configFile); err == nil {
 			return configFile
 		}
@@ -849,7 +911,7 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 				nameWithoutExt := strings.TrimSuffix(fileName, ext)
 				
 				// 计算匹配分数，优先选择最佳匹配
-				score := calculateConfigMatchScore(appNameWithoutExt, nameWithoutExt)
+				score := s.calculateConfigMatchScore(appNameWithoutExt, nameWithoutExt, expectedSuffix)
 				if score > bestScore {
 					bestScore = score
 					bestMatch = filepath.Join(configDir, file.Name())
@@ -863,7 +925,27 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 
 // calculateConfigMatchScore 计算配置文件匹配分数
 // 返回值越高表示匹配度越好，0表示不匹配
-func calculateConfigMatchScore(appName, configName string) int {
+func (s *ApplicationService) calculateConfigMatchScore(appName, configName, expectedSuffix string) int {
+	// 对于Spring Cloud模式，需要特别处理bootstrap后缀
+	if expectedSuffix != "" {
+		// 检查配置文件名是否包含期望的后缀
+		if !strings.Contains(configName, strings.TrimPrefix(expectedSuffix, "-")) {
+			// 如果不包含期望的后缀，降低分数
+			// 但仍然允许部分匹配
+		}
+		
+		// 精确匹配：应用名 + 后缀（如party-auth-bootstrap）
+		if configName == appName+strings.TrimPrefix(expectedSuffix, "-") {
+			return 1000
+		}
+		
+		// 应用名前缀 + 后缀匹配（如party-bootstrap匹配party-auth.jar）
+		if strings.HasPrefix(appName, configName[:len(configName)-len(strings.TrimPrefix(expectedSuffix, "-"))]) &&
+		   strings.HasSuffix(configName, strings.TrimPrefix(expectedSuffix, "-")) {
+			return 950
+		}
+	}
+	
 	// 精确匹配得分最高
 	if appName == configName {
 		return 1000

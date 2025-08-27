@@ -39,10 +39,11 @@ type NacosConfig struct {
 
 // ApplicationConfig 应用配置
 type ApplicationConfig struct {
-	AppType         string `mapstructure:"app_type" ini:"app_type"`
-	JVMParams       string `mapstructure:"jvm_params" ini:"jvm_params"`
-	StartupDelay    int    `mapstructure:"startup_delay" ini:"startup_delay"`       // 启动间隔时间(秒)
-	DefaultPriority int    `mapstructure:"default_priority" ini:"default_priority"` // 默认优先级
+	AppType               string `mapstructure:"app_type" ini:"app_type"`
+	JVMParams             string `mapstructure:"jvm_params" ini:"jvm_params"`
+	ApplicationConfigType string `mapstructure:"application_config_type" ini:"application_config_type"` // 应用配置类型: spring_local或spring_cloud
+	StartupDelay          int    `mapstructure:"startup_delay" ini:"startup_delay"`                     // 启动间隔时间(秒)
+	DefaultPriority       int    `mapstructure:"default_priority" ini:"default_priority"`               // 默认优先级
 }
 
 // ApplicationsConfig 应用优先级配置
@@ -114,8 +115,9 @@ func (g *DefaultConfigGenerator) GenerateDefaultConfig() *Config {
 			NacosNamespace: "",
 		},
 		Application: ApplicationConfig{
-			AppType:   "mixed",
-			JVMParams: "",
+			AppType:               "mixed",
+			JVMParams:             "",
+			ApplicationConfigType: "spring_local", // 默认使用本地配置
 		},
 		Monitoring: MonitoringConfig{
 			EnableDiskIO:     true,
@@ -239,6 +241,7 @@ func cleanConfigValues() {
 	// 清理应用配置
 	AppConfig.Application.JVMParams = cleanQuotes(AppConfig.Application.JVMParams)
 	AppConfig.Application.AppType = cleanQuotes(AppConfig.Application.AppType)
+	AppConfig.Application.ApplicationConfigType = cleanQuotes(AppConfig.Application.ApplicationConfigType)
 
 	// 清理备份配置
 	AppConfig.Backup.BackupPrefix = cleanQuotes(AppConfig.Backup.BackupPrefix)
@@ -501,6 +504,11 @@ func GetRotateLogsDir() string {
 // GetConfigDir 获取配置目录
 func GetConfigDir() string {
 	return filepath.Join(GetBackendDir(), "config")
+}
+
+// GetConfigCloudDir 获取Spring Cloud配置目录
+func GetConfigCloudDir() string {
+	return filepath.Join(GetBackendDir(), "config_cloud")
 }
 
 // IsNacosEnabled 检查是否启用了Nacos
