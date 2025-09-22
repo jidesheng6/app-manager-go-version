@@ -50,8 +50,9 @@ type ApplicationsConfig map[string]int
 
 // AppPriority 单个应用的优先级配置
 type AppPriority struct {
-	Priority     int `mapstructure:"priority"`
-	StartupDelay int `mapstructure:"startup_delay"`
+	Priority     int    `mapstructure:"priority"`
+	StartupDelay int    `mapstructure:"startup_delay"`
+	JVMParams    string `mapstructure:"jvm_params" ini:"jvm_params"` // 应用特定的JVM参数
 }
 
 // MonitoringConfig 监控配置
@@ -350,15 +351,7 @@ func getSearchDirs() []string {
 			uniqueDirs[filepath.Dir(pwd)] = struct{}{}
 		}
 
-		// 向上递归搜索父目录
-		for dir := pwd; dir != filepath.Dir(dir); dir = filepath.Dir(dir) {
-			uniqueDirs[dir] = struct{}{}
-			// 检查父目录下的 project_backend
-			parentBackendDir := filepath.Join(dir, "project_backend")
-			if _, err := os.Stat(parentBackendDir); err == nil {
-				uniqueDirs[parentBackendDir] = struct{}{}
-			}
-		}
+		// 移除了向上递归搜索父目录的逻辑，避免子目录项目引用父目录配置文件
 
 		// 3. 搜索当前目录下的所有子目录，查找可能的项目目录
 		// 这解决了在项目根目录运行时无法找到子目录中配置文件的问题
@@ -553,8 +546,22 @@ func GetNacosEnvironmentVars() map[string]string {
 }
 
 // GetOptimizedJVMParams 获取优化后的JVM参数（包含随机数优化）
-func GetOptimizedJVMParams() string {
-	jvmParams := AppConfig.Application.JVMParams
+// 如果指定了appName，优先使用应用特定的JVM参数，否则使用全局配置
+func GetOptimizedJVMParams(appName ...string) string {
+	var jvmParams string
+
+	// 如果指定了应用名称，尝试获取应用特定的JVM参数
+	if len(appName) > 0 && appName[0] != "" {
+		if appConfig, exists := AppConfig.Applications[appName[0]]; exists && appConfig.JVMParams != "" {
+			jvmParams = appConfig.JVMParams
+		} else {
+			// 应用特定配置不存在或为空，使用全局配置
+			jvmParams = AppConfig.Application.JVMParams
+		}
+	} else {
+		// 未指定应用名称，使用全局配置
+		jvmParams = AppConfig.Application.JVMParams
+	}
 
 	// 随机数优化参数
 	randomOptimization := "-Djava.security.egd=file:/dev/./urandom"

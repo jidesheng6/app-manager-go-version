@@ -275,33 +275,39 @@ func (s *ProjectService) getApplicationsConfigTemplate() string {
 	return `[applications]
 
 # 说明：
-#   本配置段用于定义特定应用程序的启动顺序和延迟。
+#   本配置段用于定义特定应用程序的启动顺序、延迟和JVM参数。
 #   对于有依赖关系的应用（如网关依赖于认证中心），此功能非常有用。
 #   未在此处配置的应用将按默认顺序启动。
 #
 # 配置格式：
 #   <app_name>.priority = <priority>
 #   <app_name>.startup_delay = <delay_in_seconds>
+#   <app_name>.jvm_params = "<jvm_parameters>"
 #
 # 参数说明：
 #   <app_name>          - 应用程序的名称（不含.jar后缀）。
 #   priority            - 启动优先级，数字越小，优先级越高（例如，1会比10先启动）。
 #   startup_delay       - 启动前延迟的秒数，用于等待依赖项完全启动。
+#   jvm_params          - 应用特定的JVM参数，会覆盖全局JVM参数配置。
 #
 # 示例：
 #   假设 party-gateway 依赖于 party-auth。
 #   我们希望 party-auth 首先启动，并等待5秒后，再启动 party-gateway。
+#   同时为 party-gateway 配置更大的内存。
 #
 #   party-auth.priority = 10
 #   party-auth.startup_delay = 0
+#   party-auth.jvm_params = "-Xms512m -Xmx1g -XX:+UseG1GC"
 #
 #   party-gateway.priority = 20
 #   party-gateway.startup_delay = 5
+#   party-gateway.jvm_params = "-Xms1g -Xmx2g -XX:+UseG1GC -Dspring.profiles.active=prod"
 #
 # 注意：
-#   - 每个应用的 priority 和 startup_delay 必须成对出现。
+#   - 每个应用的配置项都是独立的，可以只配置需要的项。
 #   - app_name 必须是唯一的。
 #   - 如果多个应用的 priority 相同，它们的启动顺序将不确定。
+#   - jvm_params 如果配置，会完全覆盖全局JVM参数，请确保包含所有必要参数。
 #   - 此处无需填写任何内容，仅为示例说明。`
 }
 

@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -109,7 +108,8 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	args := []string{}
 
 	// 获取优化后的JVM参数（包含随机数优化）
-	jvmParams := config.GetOptimizedJVMParams()
+	// 优先使用应用特定的JVM参数，如果不存在则使用全局配置
+	jvmParams := config.GetOptimizedJVMParams(app.Name)
 	if jvmParams != "" {
 		jvmArgs := strings.Fields(jvmParams)
 		args = append(args, jvmArgs...)
@@ -150,9 +150,7 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	// 设置环境变量
 	cmd.Env = os.Environ()
 	// 设置进程组，使Java进程独立于父进程信号（仅Linux）
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	// Windows环境下不支持此功能，跳过设置
 
 	// 添加Nacos环境变量（如果启用）
 	if config.IsNacosEnabled() {

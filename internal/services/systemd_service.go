@@ -294,7 +294,8 @@ func (s *SystemdService) generateServiceConfig(appName, appPath string) *Service
 	}
 	
 	// 获取优化后的JVM参数（包含随机数优化）
-	jvmParams := config.GetOptimizedJVMParams()
+	// 优先使用应用特定的JVM参数，如果不存在则使用全局配置
+	jvmParams := config.GetOptimizedJVMParams(appName)
 	if jvmParams == "" {
 		jvmParams = "-Xms512m -Xmx1024m -Djava.security.egd=file:/dev/./urandom"
 	}
