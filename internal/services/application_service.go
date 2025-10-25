@@ -193,44 +193,169 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 func (s *ApplicationService) StopApplication(app *models.Application) error {
 	logger.Info("正在准备强制停止应用: %s", app.Name)
 
-	// 1. 合并来自PID文件和系统进程列表的PID
-	pidsToStop := make(map[int]bool)
-	if app.PID > 0 && app.IsRunning() {
-		pidsToStop[app.PID] = true
-	}
-
-	orphanPIDs, err := s.findPIDsByAppName(app.Name)
-	if err != nil {
-		logger.Warning("搜索孤儿进程失败: %v", err)
-	}
-	for _, pid := range orphanPIDs {
-		pidsToStop[pid] = true
-	}
+	// 1. 收集所有需要停止的PID
+	pidsToStop := s.getAllRelatedPIDs(app)
 
 	if len(pidsToStop) == 0 {
-		logger.Info("应用 %s 未发现正在运行的进程。", app.Name)
+		logger.Info("应用 %s 未发现正在运行的进程", app.Name)
 		app.RemovePID() // 确保清理无效的PID文件
 		app.Status = models.StatusStopped
 		return nil
 	}
 
-	// 2. 强制停止所有找到的进程
+	// 2. 强制停止所有找到的进程 (使用 kill -9)
 	logger.Info("将强制终止以下进程: %v", pidsToStop)
+	failedPIDs := []int{}
+	
 	for pid := range pidsToStop {
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			logger.Warning("查找进程 PID %d 失败: %v", pid, err)
-			continue
-		}
-		if err := process.Kill(); err != nil {
+		if err := s.forceKillProcess(pid); err != nil {
 			logger.Error("强制终止 PID %d 失败: %v", pid, err)
+			failedPIDs = append(failedPIDs, pid)
+		} else {
+			logger.Info("成功终止进程 PID %d", pid)
 		}
 	}
 
-	// 3. 最终清理
+	// 3. 等待进程完全停止
+	time.Sleep(2 * time.Second)
+
+	// 4. 验证进程是否真的被停止
+	remainingPIDs := s.getAllRelatedPIDs(app)
+	if len(remainingPIDs) > 0 {
+		logger.Warning("仍有进程未被停止: %v", remainingPIDs)
+		// 再次尝试强制停止
+		for pid := range remainingPIDs {
+			s.forceKillProcess(pid)
+		}
+		time.Sleep(1 * time.Second)
+		
+		// 最终检查
+		finalCheck := s.getAllRelatedPIDs(app)
+		if len(finalCheck) > 0 {
+			return fmt.Errorf("无法完全停止应用，剩余进程: %v", finalCheck)
+		}
+	}
+
+	// 5. 清理PID文件和状态
 	app.RemovePID()
 	app.Status = models.StatusStopped
-	logger.Success("应用 %s 已被强制停止。", app.Name)
+	logger.Success("应用 %s 已被强制停止", app.Name)
+	return nil
+}
+
+// getAllRelatedPIDs 获取所有相关的PID（包括PID文件中的和基于目录查找的）
+func (s *ApplicationService) getAllRelatedPIDs(app *models.Application) map[int]bool {
+	pidsToStop := make(map[int]bool)
+	
+	// 1. 检查PID文件中的进程
+	if app.PID > 0 {
+		if s.isValidApplicationProcess(app.PID, app.Name) {
+			pidsToStop[app.PID] = true
+			logger.Info("从PID文件找到进程: %d", app.PID)
+		} else {
+			logger.Warning("PID文件中的进程 %d 不是有效的应用进程，将清理PID文件", app.PID)
+			app.RemovePID()
+		}
+	}
+
+	// 2. 基于项目目录查找Java进程
+	backendDir := config.GetBackendDir()
+	dirPIDs, err := s.findJavaProcessesByDirectory(backendDir)
+	if err != nil {
+		logger.Warning("基于目录查找进程失败: %v", err)
+	} else {
+		for _, pid := range dirPIDs {
+			if s.isValidApplicationProcess(pid, app.Name) {
+				pidsToStop[pid] = true
+				logger.Info("从目录查找找到进程: %d", pid)
+			}
+		}
+	}
+
+	// 3. 基于应用名称查找（作为补充）
+	namePIDs, err := s.findPIDsByAppName(app.Name)
+	if err != nil {
+		logger.Warning("基于应用名查找进程失败: %v", err)
+	} else {
+		for _, pid := range namePIDs {
+			if s.isValidApplicationProcess(pid, app.Name) {
+				pidsToStop[pid] = true
+				logger.Info("从应用名查找找到进程: %d", pid)
+			}
+		}
+	}
+
+	return pidsToStop
+}
+
+// findJavaProcessesByDirectory 基于目录查找Java进程
+func (s *ApplicationService) findJavaProcessesByDirectory(projectDir string) ([]int, error) {
+	var pids []int
+	
+	// 使用 ps 命令查找包含项目目录路径的Java进程
+	// ps aux | grep java | grep /path/to/project_backend
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("ps aux | grep java | grep '%s' | grep -v grep", projectDir))
+	output, err := cmd.Output()
+	if err != nil {
+		return pids, nil // 没有找到进程不是错误
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		
+		// 解析ps输出，第二列是PID
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			if pid, err := strconv.Atoi(fields[1]); err == nil {
+				pids = append(pids, pid)
+			}
+		}
+	}
+	
+	logger.Info("基于目录 %s 找到 %d 个Java进程", projectDir, len(pids))
+	return pids, nil
+}
+
+// isValidApplicationProcess 验证PID是否是有效的应用进程
+func (s *ApplicationService) isValidApplicationProcess(pid int, appName string) bool {
+	// 1. 检查进程是否存在
+	procPath := fmt.Sprintf("/proc/%d", pid)
+	if _, err := os.Stat(procPath); err != nil {
+		return false
+	}
+
+	// 2. 检查进程命令行是否包含应用名称
+	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
+	cmdlineData, err := os.ReadFile(cmdlinePath)
+	if err != nil {
+		return false
+	}
+	
+	cmdline := string(cmdlineData)
+	// 检查是否是Java进程且包含应用名称
+	if strings.Contains(cmdline, "java") && strings.Contains(cmdline, appName+".jar") {
+		return true
+	}
+
+	// 3. 检查是否在项目目录中运行
+	backendDir := config.GetBackendDir()
+	if strings.Contains(cmdline, backendDir) {
+		return true
+	}
+
+	return false
+}
+
+// forceKillProcess 强制终止进程 (相当于 kill -9)
+func (s *ApplicationService) forceKillProcess(pid int) error {
+	// 使用 kill -9 命令强制终止进程
+	cmd := exec.Command("kill", "-9", strconv.Itoa(pid))
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("执行 kill -9 %d 失败: %w", pid, err)
+	}
 	return nil
 }
 
@@ -238,22 +363,14 @@ func (s *ApplicationService) StopApplication(app *models.Application) error {
 func (s *ApplicationService) RestartApplication(app *models.Application) error {
 	logger.Info("正在重启应用: %s", app.Name)
 
-	// 先停止
+	// 先停止（如果正在运行）
 	if app.IsRunning() {
 		if err := s.StopApplication(app); err != nil {
 			return fmt.Errorf("停止应用失败: %w", err)
 		}
-
-		// 等待完全停止
-		for i := 0; i < 5; i++ {
-			if !app.IsRunning() {
-				break
-			}
-			time.Sleep(1 * time.Second)
-		}
 	}
 
-	// 再启动
+	// 直接启动
 	return s.StartApplication(app)
 }
 
