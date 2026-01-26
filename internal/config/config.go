@@ -296,8 +296,8 @@ func validateAndNormalizeNacosServer() {
 	}
 
 	if hasPort {
-		fmt.Printf("警告: Nacos服务器地址 '%s' 包含端口号，但应用配置文件中已写死端口\n", server)
-		fmt.Printf("建议: 配置文件中只需填写 IP 地址，如 server-addr: ${NACOS_SERVER:127.0.0.1}:8848\n")
+		fmt.Printf("警告: Nacos服务器地址 '%s' 包含端口号\n", server)
+		fmt.Printf("请检查应用 bootstrap 配置: 如果是 server-addr: ${NACOS_SERVER:127.0.0.1}:8848 格式，这里只需配置 IP\n")
 	}
 
 	AppConfig.Nacos.NacosServer = server
