@@ -278,7 +278,7 @@ func cleanQuotes(value string) string {
 }
 
 // validateAndNormalizeNacosServer 验证并标准化 Nacos 服务器地址
-// 如果配置的地址不包含端口号，自动添加默认端口 :8848
+// 注意：只需配置 IP 地址，不要带端口（应用配置文件中已写死端口）
 func validateAndNormalizeNacosServer() {
 	if AppConfig.Nacos.NacosServer == "" {
 		return
@@ -287,7 +287,7 @@ func validateAndNormalizeNacosServer() {
 	// 去除首尾空格
 	server := strings.TrimSpace(AppConfig.Nacos.NacosServer)
 
-	// 检查是否包含端口号（IPv4 或 IPv6）
+	// 检查是否包含端口，如果包含则警告（因为应用配置文件已写死端口）
 	hasPort := strings.Contains(server, ":")
 	// 处理 IPv6 地址格式 [::1]:8848 或 [2001:db8::1]:8848
 	if strings.HasPrefix(server, "[") {
@@ -295,13 +295,12 @@ func validateAndNormalizeNacosServer() {
 		hasPort = strings.Contains(server, "]:")
 	}
 
-	if !hasPort {
-		// 没有端口号，自动添加默认端口
-		fmt.Printf("警告: Nacos服务器地址 '%s' 未指定端口，自动添加默认端口 :8848\n", server)
-		AppConfig.Nacos.NacosServer = server + ":8848"
-	} else {
-		AppConfig.Nacos.NacosServer = server
+	if hasPort {
+		fmt.Printf("警告: Nacos服务器地址 '%s' 包含端口号，但应用配置文件中已写死端口\n", server)
+		fmt.Printf("建议: 配置文件中只需填写 IP 地址，如 server-addr: ${NACOS_SERVER:127.0.0.1}:8848\n")
 	}
+
+	AppConfig.Nacos.NacosServer = server
 }
 
 // SaveConfig 保存配置文件
