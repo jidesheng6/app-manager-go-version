@@ -183,6 +183,9 @@ func LoadConfig(configPath string) error {
 	// 清理配置值中的引号
 	cleanConfigValues()
 
+	// 验证并标准化 Nacos 服务器地址
+	validateAndNormalizeNacosServer()
+
 	return nil
 }
 
@@ -272,6 +275,33 @@ func cleanQuotes(value string) string {
 	}
 
 	return value
+}
+
+// validateAndNormalizeNacosServer 验证并标准化 Nacos 服务器地址
+// 如果配置的地址不包含端口号，自动添加默认端口 :8848
+func validateAndNormalizeNacosServer() {
+	if AppConfig.Nacos.NacosServer == "" {
+		return
+	}
+
+	// 去除首尾空格
+	server := strings.TrimSpace(AppConfig.Nacos.NacosServer)
+
+	// 检查是否包含端口号（IPv4 或 IPv6）
+	hasPort := strings.Contains(server, ":")
+	// 处理 IPv6 地址格式 [::1]:8848 或 [2001:db8::1]:8848
+	if strings.HasPrefix(server, "[") {
+		// IPv6 地址格式，检查 ]: 是否存在
+		hasPort = strings.Contains(server, "]:")
+	}
+
+	if !hasPort {
+		// 没有端口号，自动添加默认端口
+		fmt.Printf("警告: Nacos服务器地址 '%s' 未指定端口，自动添加默认端口 :8848\n", server)
+		AppConfig.Nacos.NacosServer = server + ":8848"
+	} else {
+		AppConfig.Nacos.NacosServer = server
+	}
 }
 
 // SaveConfig 保存配置文件

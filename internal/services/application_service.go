@@ -9,9 +9,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	//"syscall"
 	"time"
 )
 
@@ -144,13 +146,29 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	defer logFile.Close()
 
 	// 创建命令
-	cmd := exec.Command(s.config.Global.JavaPath, args...)
+	// 在 Linux/Unix 上使用 setsid 包装命令，使进程完全独立于父进程
+	// 这样当父进程（manager）退出或被 Ctrl+C 中断时，子进程不受影响
+	var cmd *exec.Cmd
+	if runtime.GOOS != "windows" {
+		// 检查 setsid 是否可用
+		if _, err := exec.LookPath("setsid"); err == nil {
+			// 使用 setsid 创建新会话，完全隔离进程
+			wrappedArgs := append([]string{s.config.Global.JavaPath}, args...)
+			cmd = exec.Command("setsid", wrappedArgs...)
+			logger.Info("使用 setsid 启动进程，确保进程独立运行")
+		} else {
+			// setsid 不可用，回退到直接启动
+			cmd = exec.Command(s.config.Global.JavaPath, args...)
+			logger.Warning("setsid 不可用，进程可能随父进程退出而终止")
+		}
+	} else {
+		// Windows 系统
+		cmd = exec.Command(s.config.Global.JavaPath, args...)
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	// 设置环境变量
 	cmd.Env = os.Environ()
-	// 设置进程组，使Java进程独立于父进程信号（仅Linux）
-	// Windows环境下不支持此功能，跳过设置
 
 	// 添加Nacos环境变量（如果启用）
 	if config.IsNacosEnabled() {
@@ -206,7 +224,7 @@ func (s *ApplicationService) StopApplication(app *models.Application) error {
 	// 2. 强制停止所有找到的进程 (使用 kill -9)
 	logger.Info("将强制终止以下进程: %v", pidsToStop)
 	failedPIDs := []int{}
-	
+
 	for pid := range pidsToStop {
 		if err := s.forceKillProcess(pid); err != nil {
 			logger.Error("强制终止 PID %d 失败: %v", pid, err)
@@ -228,7 +246,7 @@ func (s *ApplicationService) StopApplication(app *models.Application) error {
 			s.forceKillProcess(pid)
 		}
 		time.Sleep(1 * time.Second)
-		
+
 		// 最终检查
 		finalCheck := s.getAllRelatedPIDs(app)
 		if len(finalCheck) > 0 {
@@ -246,7 +264,7 @@ func (s *ApplicationService) StopApplication(app *models.Application) error {
 // getAllRelatedPIDs 获取所有相关的PID（包括PID文件中的和基于目录查找的）
 func (s *ApplicationService) getAllRelatedPIDs(app *models.Application) map[int]bool {
 	pidsToStop := make(map[int]bool)
-	
+
 	// 1. 检查PID文件中的进程
 	if app.PID > 0 {
 		if s.isValidApplicationProcess(app.PID, app.Name) {
@@ -291,7 +309,7 @@ func (s *ApplicationService) getAllRelatedPIDs(app *models.Application) map[int]
 // findJavaProcessesByDirectory 基于目录查找Java进程
 func (s *ApplicationService) findJavaProcessesByDirectory(projectDir string) ([]int, error) {
 	var pids []int
-	
+
 	// 使用 ps 命令查找包含项目目录路径的Java进程
 	// ps aux | grep java | grep /path/to/project_backend
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("ps aux | grep java | grep '%s' | grep -v grep", projectDir))
@@ -305,7 +323,7 @@ func (s *ApplicationService) findJavaProcessesByDirectory(projectDir string) ([]
 		if line == "" {
 			continue
 		}
-		
+
 		// 解析ps输出，第二列是PID
 		fields := strings.Fields(line)
 		if len(fields) >= 2 {
@@ -314,7 +332,7 @@ func (s *ApplicationService) findJavaProcessesByDirectory(projectDir string) ([]
 			}
 		}
 	}
-	
+
 	logger.Info("基于目录 %s 找到 %d 个Java进程", projectDir, len(pids))
 	return pids, nil
 }
@@ -333,19 +351,15 @@ func (s *ApplicationService) isValidApplicationProcess(pid int, appName string) 
 	if err != nil {
 		return false
 	}
-	
+
 	cmdline := string(cmdlineData)
-	// 检查是否是Java进程且包含应用名称
+	// 检查是否是Java进程且包含应用名称的jar文件
+	// 必须精确匹配 appName.jar，避免误杀其他应用
 	if strings.Contains(cmdline, "java") && strings.Contains(cmdline, appName+".jar") {
 		return true
 	}
 
-	// 3. 检查是否在项目目录中运行
-	backendDir := config.GetBackendDir()
-	if strings.Contains(cmdline, backendDir) {
-		return true
-	}
-
+	// 不是当前应用的进程
 	return false
 }
 
@@ -949,10 +963,10 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 	appNameLower := strings.ToLower(appName)
 	// 移除.jar或.war后缀进行匹配
 	appNameWithoutExt := strings.TrimSuffix(strings.TrimSuffix(appNameLower, ".jar"), ".war")
-	
+
 	var bestMatch string
 	var bestScore int
-	
+
 	for _, file := range files {
 		if file.IsDir() {
 			continue
@@ -962,7 +976,7 @@ func (s *ApplicationService) findConfigFile(appName string) string {
 		for _, ext := range extensions {
 			if strings.HasSuffix(fileName, ext) {
 				nameWithoutExt := strings.TrimSuffix(fileName, ext)
-				
+
 				// 计算匹配分数，优先选择最佳匹配
 				score := calculateConfigMatchScore(appNameWithoutExt, nameWithoutExt)
 				if score > bestScore {
@@ -983,28 +997,28 @@ func calculateConfigMatchScore(appName, configName string) int {
 	if appName == configName {
 		return 1000
 	}
-	
+
 	// 应用名以配置名开头（如party-auth匹配party-auth.yml）
 	if strings.HasPrefix(appName, configName) {
 		return 900
 	}
-	
+
 	// 配置名以应用名开头（如party匹配party-auth.jar）
 	if strings.HasPrefix(configName, appName) {
 		return 800
 	}
-	
+
 	// 应用名包含配置名，但要求配置名长度至少为应用名的一半
 	// 这样可以避免party.yml匹配到party-auth.jar的情况
 	if strings.Contains(appName, configName) && len(configName) >= len(appName)/2 {
 		return 700
 	}
-	
+
 	// 配置名包含应用名，但要求应用名长度至少为配置名的一半
 	if strings.Contains(configName, appName) && len(appName) >= len(configName)/2 {
 		return 600
 	}
-	
+
 	// 不匹配
 	return 0
 }
@@ -1092,7 +1106,7 @@ func (s *ApplicationService) trySSCommand(port int) (*PortConnectionStats, error
 					portPattern := fmt.Sprintf(":%d", port)
 					if strings.HasSuffix(localAddr, portPattern) && state == "ESTAB" {
 						establishedConnections++
-						
+
 						// 提取远程IP地址进行去重
 						if remoteIP := extractIPFromAddress(remoteAddr); remoteIP != "" {
 							uniqueIPs[remoteIP] = true

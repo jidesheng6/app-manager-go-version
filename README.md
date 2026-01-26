@@ -159,6 +159,11 @@ java_path="java"
 
 [nacos]
 # Nacos服务器地址 [选填]
+# 说明：
+#   - 不需要 http:// 前缀
+#   - 未指定端口时自动添加默认端口 :8848
+#   - 集群模式多个地址用英文逗号分隔
+#   - 示例：nacos_server="192.168.1.100:8848" 或 "192.168.1.100"
 nacos_server=""
 # Nacos命名空间 [选填]
 nacos_namespace=""
