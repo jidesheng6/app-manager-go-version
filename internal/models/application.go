@@ -298,18 +298,23 @@ func (app *Application) getProcessInfoLinux() *ProcessInfo {
 	return info
 }
 
-// GetCPUUsageString 获取CPU使用率字符串
+// GetCPUUsageString 获取CPU使用率字符串（整机口径，0~100%，不再被截断）
+// 单核口径超过 100% 时附带括号说明，便于看出吃满了几个核
 func (app *Application) GetCPUUsageString() string {
 	if !app.IsRunning() {
-		return "0%"
+		return "0.0%"
 	}
-	
+
 	info := app.GetProcessInfo()
-	if info.CPUPercent > 100 {
-		info.CPUPercent = 100
+	return FormatCPUHostWithPerCore(info.CPUPercent)
+}
+
+// GetCPUPerCoreString 获取单核口径的CPU使用率（0 ~ 核数×100%）
+func (app *Application) GetCPUPerCoreString() string {
+	if !app.IsRunning() {
+		return "0.0%"
 	}
-	
-	return fmt.Sprintf("%.1f%%", info.CPUPercent)
+	return FormatCPUPerCore(app.GetProcessInfo().CPUPercent)
 }
 
 // GetMemoryUsageString 获取内存使用率字符串

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"app-manager-go-v1/internal/models"
 	"fmt"
 	"net"
 	"os"
@@ -683,6 +684,9 @@ func GetSystemInfo() map[string]string {
 		info["nacos_server"] = "未启用"
 		info["nacos_namespace"] = "未启用"
 	}
+
+	// CPU 核心数（CPU 使用率的归一化基准）
+	info["cpu_count"] = fmt.Sprintf("%d", models.CPUCount())
 
 	// JVM参数
 	jvmParams := GetOptimizedJVMParams()

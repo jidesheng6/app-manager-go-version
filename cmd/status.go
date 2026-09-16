@@ -183,6 +183,7 @@ func showSystemInfo() {
 	logger.Info("系统信息:")
 	logger.Printf("主机名: \033[33m%s\033[0m\n", systemInfo["hostname"])
 	logger.Printf("IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
+	logger.Printf("CPU核心: \033[33m%s\033[0m (CPU使用率按此核数归一化)\n", systemInfo["cpu_count"])
 	logger.Printf("项目目录: \033[32m%s\033[0m\n", systemInfo["project_root"])
 	logger.Printf("Nacos地址: \033[35m%s\033[0m\n", systemInfo["nacos_server"])
 	logger.Printf("Nacos命名空间: \033[34m%s\033[0m\n", systemInfo["nacos_namespace"])
@@ -208,7 +209,8 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 	}
 
 	if status.CPUUsage != "" {
-		logger.Printf("CPU使用率: %s\n", status.CPUUsage)
+		logger.Printf("CPU使用率: \033[33m%s\033[0m  \033[90m(整机口径 / %d 核)\033[0m\n",
+			status.CPUUsage, models.CPUCount())
 	}
 
 	if status.MemoryUsage != "" {
@@ -321,11 +323,16 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	for i, app := range apps {
 		status := appService.GetApplicationStatus(app) // 从service获取状态
 
+		// 进程信息（CPU/内存/IO/网络都从这里取）
+		procInfo := app.GetProcessInfo()
+		if procInfo == nil {
+			procInfo = &models.ProcessInfo{}
+		}
+
 		// 统计状态
 		if status.Status == models.StatusRunning {
 			runningCount++
-			// 累加资源使用情况
-			procInfo := app.GetProcessInfo()
+			// 累加资源使用情况（CPU 用单核口径累加，最后统一换算整机口径）
 			totalCPU += procInfo.CPUPercent
 			totalMem += procInfo.MemoryPercent
 			totalMemSize += procInfo.MemoryKB
@@ -349,9 +356,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			uptimeStr = status.Uptime
 		}
 
-		cpuStr := "0%"
-		if status.CPUUsage != "" {
-			cpuStr = status.CPUUsage
+		// CPU：单核口径超过 100% 时同时标注整机口径
+		cpuStr := "0.0%"
+		if procInfo.CPUPercent > 0 {
+			cpuStr = models.FormatCPUWithHost(procInfo.CPUPercent)
 		}
 
 		memoryStr := "0%"
@@ -364,9 +372,6 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			memorySizeStr = status.MemorySize
 		}
 
-		// 获取进程信息以显示监控数据
-		procInfo := app.GetProcessInfo()
-		
 		// 磁盘 I/O 信息
 		diskReadStr := "--"
 		diskWriteStr := "--"
@@ -424,7 +429,8 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	avgCPUStr := "0.0%"
 	avgMemStr := "0.0%"
 	if runningCount > 0 {
-		avgCPU := totalCPU / float64(runningCount)
+		// CPU 换算成整机口径再求平均，保证 0~100% 且可跨应用理解
+		avgCPU := models.CPUPercentOfHost(totalCPU) / float64(runningCount)
 		avgMem := totalMem / float64(runningCount)
 
 		avgCPUStr = fmt.Sprintf("Avg %.1f%%", avgCPU)
