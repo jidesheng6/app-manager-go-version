@@ -386,8 +386,22 @@ func TestHardLinkRenameSemantics(t *testing.T) {
 	}
 
 	// 归档名必须基于被归档的真实文件（而不是 <app>.log 这个链接名）
-	if got := filepath.Base(archived); got != app+"-2026-09-16-155015-停止.log" {
-		t.Fatalf("归档名应保持原文件的启动时间戳，实际: %s", got)
+	// 格式: <app>-<原启动时间>启动-<停止时间>停止.log
+	// 本用例停止时间与启动时间同秒，按规则顺延 1 秒
+	wantArchived := app + "-2026-09-16-155015启动-2026-09-16-155016停止.log"
+	if got := filepath.Base(archived); got != wantArchived {
+		t.Fatalf("归档名错误，期望 %s，实际 %s", wantArchived, got)
+	}
+
+	parsed, zero := parseSessionName(filepath.Base(archived))
+	if zero || parsed.AppName != app || !parsed.Stopped {
+		t.Fatalf("归档名解析错误: %+v", parsed)
+	}
+	if !parsed.StartTime.Equal(time.Date(2026, 9, 16, 15, 50, 15, 0, time.Local)) {
+		t.Fatalf("启动时间应来自原会话文件名，实际 %v", parsed.StartTime)
+	}
+	if !parsed.StopTime.After(parsed.StartTime) {
+		t.Fatalf("停止时间应晚于启动时间，实际 %v", parsed.StopTime)
 	}
 
 	// 硬链接语义下原文件仍有另一个目录项，会由 prepareSessionLog 在下次启动时补归档

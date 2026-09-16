@@ -108,18 +108,24 @@ func (s *LogService) ListAppSessions(appName string) error {
 	logger.Printf("共 \033[33m%d\033[0m 个运行周期日志（新的在前）:\n\n", len(sessions))
 	for i, session := range sessions {
 		state := "\033[32m运行中\033[0m"
+		duration := ""
 		if session.Stopped {
 			state = "\033[90m已停止\033[0m"
+			if !session.StopTime.IsZero() {
+				duration = " 停止于 " + session.StopTime.Format("2006-01-02 15:04:05") +
+					"（运行 " + formatSessionDuration(session.StopTime.Sub(session.StartTime)) + "）"
+			}
 		}
 		marker := " "
 		if i == 0 {
 			marker = "\033[33m*\033[0m"
 		}
 
-		logger.Printf("%s %2d. %s  [%s]  %s\n",
+		logger.Printf("%s %2d. 启动 %s  [%s]%s  %s\n",
 			marker, i+1,
 			session.StartTime.Format("2006-01-02 15:04:05"),
 			state,
+			duration,
 			s.formatFileSize(session.Size))
 		logger.Printf("      %s\n", session.Path)
 	}
@@ -157,7 +163,14 @@ func (s *LogService) TailLogSession(appName string, index int, lines int, follow
 
 	logger.Title("查看历史日志")
 	logger.Info("应用名称: %s", resolvedName)
-	logger.Info("启动时间: %s (%s)", session.StartTime.Format("2006-01-02 15:04:05"), statusText(session.Stopped))
+	logger.Info("启动时间: %s", session.StartTime.Format("2006-01-02 15:04:05"))
+	if session.Stopped && !session.StopTime.IsZero() {
+		logger.Info("停止时间: %s（运行 %s）",
+			session.StopTime.Format("2006-01-02 15:04:05"),
+			formatSessionDuration(session.StopTime.Sub(session.StartTime)))
+	} else {
+		logger.Info("状态: 运行中/未归档")
+	}
 	logger.Info("日志文件: %s", session.Path)
 	logger.Println("")
 
@@ -170,6 +183,23 @@ func statusText(stopped bool) string {
 		return "已归档"
 	}
 	return "运行中/未归档"
+}
+
+// formatSessionDuration 把会话时长格式化为人类可读文本
+func formatSessionDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+
+	seconds := int(d.Seconds())
+	switch {
+	case seconds < 60:
+		return fmt.Sprintf("%d 秒", seconds)
+	case seconds < 3600:
+		return fmt.Sprintf("%d 分 %d 秒", seconds/60, seconds%60)
+	default:
+		return fmt.Sprintf("%d 小时 %d 分", seconds/3600, (seconds%3600)/60)
+	}
 }
 
 // tailLogWithCommand 使用Linux原生tail命令显示日志文件的最后几行
@@ -234,7 +264,8 @@ func (ls *LogService) generateLogrotateConfig(projectRoot, description string) s
 	configBuilder.WriteString("# App Manager 统一日志轮转配置\n")
 	configBuilder.WriteString(fmt.Sprintf("# 项目路径: %s\n\n", projectRoot))
 
-	// 会话日志: <app>-yyyy-MM-dd-HHmmss.log / <app>-yyyy-MM-dd-HHmmss-停止.log
+	// 会话日志: <app>-<启动时间>启动.log / <app>-<启动时间>启动-<停止时间>停止.log
+	// 兼容旧命名: <app>-<启动时间>.log / <app>-<启动时间>-停止.log
 	// 注意: 当前正在写入的日志由 app-manager 在 stop 时归档，logrotate 只兜底处理超大/超期的历史文件
 	configBuilder.WriteString("# 会话日志（按运行周期留痕，由 app-manager 自动归档）\n")
 	configBuilder.WriteString(fmt.Sprintf("%s/*-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.log {\n", logsDir))

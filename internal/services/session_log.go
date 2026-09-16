@@ -13,39 +13,62 @@ import (
 
 // 应用日志留痕（会话日志）命名规则：
 //
-//	本次运行   : <app>-<启动时间>.log                例如 party-auth-2025-01-01-101530.log
-//	已归档会话 : <app>-<启动时间>-停止.log           例如 party-auth-2025-01-01-101530-停止.log
-//	当前快捷   : <app>.log （软链接，指向最新一次运行/最近归档的日志；Windows 不支持则自动跳过）
+//	本次运行   : <app>-<启动时间>启动.log                    例如 party-auth-2025-01-01-101530启动.log
+//	已归档会话 : <app>-<启动时间>启动-<停止时间>停止.log      例如 party-auth-2025-01-01-101530启动-2025-01-01-183000停止.log
+//	当前快捷   : <app>.log （软链接，仅运行期存在，指向本次会话日志）
+//
+// 兼容旧命名（上一版产生，仍可识别、可继续归档）：
+//
+//	<app>-<启动时间>.log
+//	<app>-<启动时间>-停止.log
 //
 // 说明：日志按“运行周期”分段，每次 start 新建一个文件，stop/restart 时把当前文件改名归档，
-// 因此历史上任何一次启动的输出都不会被覆盖，程序被 kill -9 时也会在下次启动前补归档。
+// 文件名同时记录启动与停止时刻，历史上任何一次启动的输出都不会被覆盖，
+// 程序被 kill -9 时也会在下次启动前补归档。
 
 const (
 	// SessionTimeLayout 会话日志文件名中的时间格式: yyyy-MM-dd-HHmmss
 	SessionTimeLayout = "2006-01-02-150405"
 
-	// stoppedSuffix 归档标记，插在 .log 之前
-	stoppedSuffix = "-停止"
+	// sessionTimePattern 时间片段的形状（4-2-2-6 位数字），用于拼接正则
+	sessionTimePattern = `\d{4}-\d{2}-\d{2}-\d{6}`
+
+	// startMark 启动标记，跟在启动时间之后
+	startMark = "启动"
+	// stopMark 停止标记，跟在停止时间之后
+	stopMark = "停止"
+
+	// legacyStoppedSuffix 旧版归档标记 <app>-<启动时间>-停止.log
+	legacyStoppedSuffix = "-停止"
 
 	// logExt 会话日志扩展名
 	logExt = ".log"
 )
 
 var (
-	// sessionStartRegex 匹配会话/归档命名中的 <app>-<yyyy-MM-dd-HHmmss> 前缀
-	sessionStartRegex = regexp.MustCompile(`^(.*)-\d{4}-\d{2}-\d{2}-\d{6}(-停止)?\.log$`)
-	// sessionLogRegex 匹配 <app>-<yyyy-MM-dd-HHmmss>.log
-	sessionLogRegex = regexp.MustCompile(`^(.*)-(\d{4}-\d{2}-\d{2}-\d{6})\.log$`)
-	// stoppedLogRegex 匹配 <app>-<yyyy-MM-dd-HHmmss>-停止.log
-	stoppedLogRegex = regexp.MustCompile(`^(.*)-(\d{4}-\d{2}-\d{2}-\d{6})-停止\.log$`)
+	// sessionLogRegex 匹配旧版会话命名 <app>-<启动时间>.log
+	sessionLogRegex = regexp.MustCompile(`^(.*?)-(` + sessionTimePattern + `)\.log$`)
+	// legacyStoppedLogRegex 匹配旧版归档命名 <app>-<启动时间>-停止.log
+	legacyStoppedLogRegex = regexp.MustCompile(`^(.*?)-(` + sessionTimePattern + `)-停止\.log$`)
+	// legacyCollisionLogRegex 匹配旧版同秒冲突命名 <app>-<启动时间>-停止(2).log
+	legacyCollisionLogRegex = regexp.MustCompile(`^(.*)-(` + sessionTimePattern + `)-停止\(\d+\)\.log$`)
+	// archivedLogRegex 匹配归档命名 <app>-<启动时间>启动-<停止时间>停止.log
+	archivedLogRegex = regexp.MustCompile(`^(.*)-(` + sessionTimePattern + `)启动-(` + sessionTimePattern + `)停止\.log$`)
+	// startedLogRegex 匹配会话命名 <app>-<启动时间>启动.log
+	startedLogRegex = regexp.MustCompile(`^(.*)-(` + sessionTimePattern + `)启动\.log$`)
+	// stopTailRegex 从完整路径中提取末尾的 -<停止时间>停止.log
+	stopTailRegex = regexp.MustCompile(`-(` + sessionTimePattern + `)停止\.log$`)
+	// collisionSuffixRegex 匹配旧版同秒冲突产生的 (2)/(3) 后缀
+	collisionSuffixRegex = regexp.MustCompile(`^\(\d+\)$`)
 )
 
 // LogSession 表示一次运行周期产生的日志文件
 type LogSession struct {
 	AppName   string    // 应用名称
 	Path      string    // 日志文件完整路径
-	StartTime time.Time // 会话启动时间（文件名中的时间）
-	Stopped   bool      // 是否已归档（文件名带 -停止）
+	StartTime time.Time // 会话启动时间（文件名中的启动时间）
+	StopTime  time.Time // 停止时间（已归档的文件才有）
+	Stopped   bool      // 是否已归档
 	Size      int64     // 文件大小(字节)
 	ModTime   time.Time // 最后修改时间
 }
@@ -62,20 +85,36 @@ func CurrentLogLinkPath(appName string) string {
 
 // NewSessionLogPath 生成某个启动时刻对应的会话日志路径
 func NewSessionLogPath(appName string, start time.Time) string {
-	return filepath.Join(config.GetLogsDir(), appName+"-"+start.Format(SessionTimeLayout)+logExt)
+	return filepath.Join(config.GetLogsDir(), appName+"-"+start.Format(SessionTimeLayout)+startMark+logExt)
 }
 
-// hasStoppedMark 判断文件名（含 .log）是否带归档标记
+// hasStoppedMark 判断文件名（含 .log）是否带归档标记（新版 -<停止时间>停止.log 或旧版 -停止.log）
 func hasStoppedMark(fileName string) bool {
-	return strings.HasSuffix(strings.TrimSuffix(fileName, logExt), stoppedSuffix)
+	base := strings.TrimSuffix(filepath.Base(fileName), logExt)
+	return stopTailRegex.MatchString(fileName) || strings.HasSuffix(base, legacyStoppedSuffix)
 }
 
 // sessionAppName 从会话日志文件名中还原应用名称
 func sessionAppName(fileName string) string {
 	base := filepath.Base(fileName)
 
-	// 会话/归档命名: 去掉 -yyyy-MM-dd-HHmmss 与 -停止 后缀
-	if m := sessionStartRegex.FindStringSubmatch(base); m != nil {
+	// 新版会话/归档命名: 去掉 启动/停止 时间片段
+	if m := archivedLogRegex.FindStringSubmatch(base); m != nil {
+		return m[1]
+	}
+	if m := startedLogRegex.FindStringSubmatch(base); m != nil {
+		return m[1]
+	}
+
+	// 旧版命名: 去掉 -<时间> 与 -停止 后缀
+	if m := sessionLogRegex.FindStringSubmatch(base); m != nil {
+		return m[1]
+	}
+	if m := legacyStoppedLogRegex.FindStringSubmatch(base); m != nil {
+		return m[1]
+	}
+	// 旧版同秒冲突命名 <app>-<时间>-停止(2).log
+	if m := legacyCollisionLogRegex.FindStringSubmatch(base); m != nil {
 		return m[1]
 	}
 
@@ -83,8 +122,33 @@ func sessionAppName(fileName string) string {
 	return strings.TrimSuffix(base, logExt)
 }
 
+// sessionStartSegment 从会话日志文件名中取出启动时间片段
+func sessionStartSegment(fileName string) string {
+	base := filepath.Base(fileName)
+
+	if m := archivedLogRegex.FindStringSubmatch(base); m != nil {
+		return m[2]
+	}
+	if m := startedLogRegex.FindStringSubmatch(base); m != nil {
+		return m[2]
+	}
+	if m := sessionLogRegex.FindStringSubmatch(base); m != nil {
+		return m[2]
+	}
+	if m := legacyStoppedLogRegex.FindStringSubmatch(base); m != nil {
+		return m[2]
+	}
+	if m := legacyCollisionLogRegex.FindStringSubmatch(base); m != nil {
+		return m[2]
+	}
+	return ""
+}
+
 // parseSessionTime 解析文件名中的时间片段，失败时返回零值
 func parseSessionTime(value string) time.Time {
+	if value == "" {
+		return time.Time{}
+	}
 	parsed, err := time.ParseInLocation(SessionTimeLayout, value, time.Local)
 	if err != nil {
 		return time.Time{}
@@ -92,49 +156,85 @@ func parseSessionTime(value string) time.Time {
 	return parsed
 }
 
-// archivedSessionPath 生成归档后的日志路径: <app>-<时间>-停止.log
+// archivedSessionPath 生成归档后的日志路径: <app>-<启动时间>启动-<停止时间>停止.log
 // filePath 为当前会话日志；fallbackTime 用于无法从文件名解析启动时间时的时间戳
-func archivedSessionPath(filePath string, fallbackTime time.Time) string {
+func archivedSessionPath(filePath string, stopTime time.Time) string {
 	appName := sessionAppName(filePath)
 
 	start := parseSessionTime(sessionStartSegment(filepath.Base(filePath)))
 	if start.IsZero() {
-		start = fallbackTime
+		start = stopTime
 	}
 	if start.IsZero() {
 		start = time.Now()
 	}
+	if stopTime.IsZero() {
+		stopTime = time.Now()
+	}
 
-	return filepath.Join(filepath.Dir(filePath), appName+"-"+start.Format(SessionTimeLayout)+stoppedSuffix+logExt)
+	// 同秒停止时把停止时间顺延 1 秒，避免启动与停止时间戳完全相同造成歧义
+	if stopTime.Equal(start) {
+		stopTime = stopTime.Add(time.Second)
+	}
+
+	return filepath.Join(filepath.Dir(filePath),
+		appName+"-"+start.Format(SessionTimeLayout)+startMark+"-"+stopTime.Format(SessionTimeLayout)+stopMark+logExt)
 }
 
-// sessionStartSegment 从会话日志文件名中取出 -yyyy-MM-dd-HHmmss 时间片段
-func sessionStartSegment(fileName string) string {
-	if m := sessionLogRegex.FindStringSubmatch(filepath.Base(fileName)); m != nil {
-		return m[2]
-	}
-	if m := stoppedLogRegex.FindStringSubmatch(filepath.Base(fileName)); m != nil {
-		return m[2]
-	}
-	return ""
-}
-
-// parseSessionName 解析会话日志文件名，返回应用名称、启动时间和归档标记
-// 非会话日志命名（例如旧版 <app>.log）返回 stopped=false、时间零值
-func parseSessionName(fileName string) (appName string, start time.Time, stopped bool) {
+// parseSessionName 解析会话日志文件名（新旧命名都支持）
+// 非会话日志命名（例如旧版 <app>.log）返回 zero=true
+func parseSessionName(fileName string) (session LogSession, zero bool) {
 	base := filepath.Base(fileName)
 
-	// 归档命名 <app>-<yyyy-MM-dd-HHmmss>-停止.log
-	if m := stoppedLogRegex.FindStringSubmatch(base); m != nil {
-		return m[1], parseSessionTime(m[2]), true
+	// 新版归档: <app>-<启动>启动-<停止>停止.log
+	if m := archivedLogRegex.FindStringSubmatch(base); m != nil {
+		return LogSession{
+			AppName:   m[1],
+			StartTime: parseSessionTime(m[2]),
+			StopTime:  parseSessionTime(m[3]),
+			Stopped:   true,
+		}, false
 	}
 
-	// 会话命名 <app>-<yyyy-MM-dd-HHmmss>.log
+	// 新版会话: <app>-<启动>启动.log
+	if m := startedLogRegex.FindStringSubmatch(base); m != nil {
+		return LogSession{AppName: m[1], StartTime: parseSessionTime(m[2])}, false
+	}
+
+	// 旧版归档: <app>-<启动>-停止.log
+	if m := legacyStoppedLogRegex.FindStringSubmatch(base); m != nil {
+		return LogSession{AppName: m[1], StartTime: parseSessionTime(m[2]), Stopped: true}, false
+	}
+
+	// 旧版同秒冲突归档: <app>-<启动>-停止(2).log
+	if m := legacyCollisionLogRegex.FindStringSubmatch(base); m != nil {
+		return LogSession{AppName: m[1], StartTime: parseSessionTime(m[2]), Stopped: true}, false
+	}
+
+	// 旧版会话: <app>-<启动>.log
 	if m := sessionLogRegex.FindStringSubmatch(base); m != nil {
-		return m[1], parseSessionTime(m[2]), false
+		return LogSession{AppName: m[1], StartTime: parseSessionTime(m[2])}, false
 	}
 
-	return strings.TrimSuffix(base, logExt), time.Time{}, false
+	return LogSession{}, true
+}
+
+// sessionIsForApp 判断会话日志是否属于指定应用
+// 容忍旧版同秒冲突产生的 (2)/(3) 后缀，保证脏数据也能被清理和归档
+func sessionIsForApp(session LogSession, appName string) bool {
+	if session.AppName == appName {
+		return true
+	}
+
+	// 形如 <app>(2)：比对去掉冲突后缀后的名字
+	if idx := strings.LastIndex(session.AppName, "("); idx > 0 {
+		base := session.AppName[:idx]
+		if collisionSuffixRegex.MatchString(session.AppName[idx:]) && base == appName {
+			return true
+		}
+	}
+
+	return false
 }
 
 // resolveRealLogPath 解析日志真实文件路径：
@@ -204,7 +304,7 @@ func cleanupStraySessionLinks(appName string) int {
 			continue
 		}
 		// 只清理本应用的会话/归档命名链接，不动其他应用和用户自己建的文件
-		if parsedName, _, _ := parseSessionName(name); parsedName != appName {
+		if session, zero := parseSessionName(name); zero || !sessionIsForApp(session, appName) {
 			continue
 		}
 
@@ -233,7 +333,8 @@ func nextArchivedPath(path string) string {
 	return fmt.Sprintf("%s(%d)%s", base, time.Now().UnixNano(), ext)
 }
 
-// archiveLogFile 把正在写入的日志文件改名为归档文件 <app>-<启动时间>-停止.log
+// archiveLogFile 把正在写入的日志文件改名归档为
+// <app>-<启动时间>启动-<停止时间>停止.log
 //
 // 只接受普通文件：软链接必须先由调用方解析成真实路径，
 // 否则 os.Rename 会重命名软链接本身（线上曾因此滚出 -停止(2).log -> -停止.log 的链子）。
@@ -263,7 +364,7 @@ func archiveLogFile(path string) (string, error) {
 		stopTime = time.Now()
 	}
 
-	target := nextArchivedPath(archivedSessionPath(path, stopTime))
+	target := nextArchivedPath(archivedSessionPath(path, info.ModTime()))
 	if filepath.Clean(target) == filepath.Clean(path) {
 		return path, nil
 	}
@@ -271,7 +372,39 @@ func archiveLogFile(path string) (string, error) {
 	if err := os.Rename(path, target); err != nil {
 		return "", err
 	}
+
+	// 链接是绝对路径时直接删；相对路径时按链接文本判断是否指向刚被改名的文件
+	removeLinkTo(appNameOfSessionPath(path), filepath.Base(path))
+
 	return target, nil
+}
+
+// appNameOfSessionPath 从会话日志路径还原应用名称
+func appNameOfSessionPath(path string) string {
+	return sessionAppName(filepath.Base(path))
+}
+
+// removeLinkTo 删除指向 oldName 的 <app>.log 软链接（归档改名后调用，避免链接悬空）
+func removeLinkTo(appName, oldName string) {
+	if appName == "" {
+		return
+	}
+
+	linkPath := CurrentLogLinkPath(appName)
+	info, err := os.Lstat(linkPath)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return
+	}
+
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		return
+	}
+
+	// 链接文本可能是相对名或绝对路径
+	if filepath.Base(target) == oldName {
+		_ = os.Remove(linkPath)
+	}
 }
 
 // ArchiveLegacyLog 归档旧命名(<app>.log，真实文件，非软链接)的日志
@@ -378,8 +511,8 @@ func ListLogSessions(appName string) []*LogSession {
 			continue
 		}
 
-		name, start, stopped := parseSessionName(entry.Name())
-		if name != appName || start.IsZero() {
+		session, zero := parseSessionName(entry.Name())
+		if zero || session.StartTime.IsZero() || !sessionIsForApp(session, appName) {
 			continue
 		}
 
@@ -388,14 +521,12 @@ func ListLogSessions(appName string) []*LogSession {
 			continue
 		}
 
-		sessions = append(sessions, &LogSession{
-			AppName:   name,
-			Path:      filepath.Join(logsDir, entry.Name()),
-			StartTime: start,
-			Stopped:   stopped,
-			Size:      info.Size(),
-			ModTime:   info.ModTime(),
-		})
+		session.AppName = appName
+		session.Path = filepath.Join(logsDir, entry.Name())
+		session.Size = info.Size()
+		session.ModTime = info.ModTime()
+
+		sessions = append(sessions, &session)
 	}
 
 	sort.Slice(sessions, func(i, j int) bool {
@@ -472,13 +603,16 @@ func PrintLogDiagnostics(appName string) error {
 			if appName != "" && !strings.HasPrefix(entry.Name(), appName) {
 				continue
 			}
-			name, start, stopped := parseSessionName(entry.Name())
+			session, zero := parseSessionName(entry.Name())
 			kind := "未知命名"
-			if name != "" && !start.IsZero() {
-				if stopped {
+			if !zero && !session.StartTime.IsZero() {
+				if session.Stopped {
 					kind = "归档(已停止)"
+					if !session.StopTime.IsZero() {
+						kind += " 停止于 " + session.StopTime.Format("15:04:05")
+					}
 				} else {
-					kind = "会话(未归档)" + warnIfOld(start)
+					kind = "会话(未归档)" + warnIfOld(session.StartTime)
 				}
 			}
 			fmt.Printf("  [文件] %-60s %8d 字节  %s  %s\n",
