@@ -74,13 +74,24 @@ Write-Host "  version:   $Version"
 Write-Host "  git:       $GitBranch@$GitCommit (dirty=$GitDirty)"
 Write-Host "  buildTime: $BuildTime"
 Write-Host ""
+# Run from the script's own directory so that both the go build target (".") and the
+# output paths resolve against the repository, no matter where the script was invoked.
+Set-Location -LiteralPath $PSScriptRoot
+
+# Resolve OutputDir against the PowerShell location (not the process working directory).
+# .NET APIs like [System.IO.File]::WriteAllText resolve relative paths against the process
+# CWD, which is NOT necessarily where PowerShell is sitting (e.g. C:\WINDOWS\system32 when
+# launched from Explorer) - that mismatch once wrote BUILD-INFO.txt to the wrong place.
+$OutputDir = Join-Path $PWD.Path $OutputDir
 
 $env:GOOS = "linux"
 $env:CGO_ENABLED = "0"
 
-if (!(Test-Path $OutputDir)) {
+if (!(Test-Path -LiteralPath $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
+
+Write-Host "  outDir:    $OutputDir"
 
 $LdFlags = @(
     "-s", "-w",
