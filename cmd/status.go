@@ -24,6 +24,7 @@ import (
 var (
 	statusDetail bool
 	statusJSON   bool
+	debugLogs    bool
 )
 
 // statusCmd 状态命令
@@ -48,12 +49,23 @@ var statusCmd = &cobra.Command{
   app-manager status                  # 查看所有应用状态
   app-manager status myapp            # 查看指定应用状态
   app-manager status --detail         # 查看详细状态信息
-  app-manager status --json           # 以JSON格式输出`,
+  app-manager status --json           # 以JSON格式输出
+  app-manager status --debug-logs     # 打印日志目录诊断信息（软链接/归档状态）`,
 	Args: cobra.MaximumNArgs(1),
 	PreRun: func(cmd *cobra.Command, args []string) {
 		handleError(checkProjectInit(), 1)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		// 日志目录诊断（用于排查留痕/软链接问题，只读不修改）
+		if debugLogs {
+			appName := ""
+			if len(args) > 0 {
+				appName = args[0]
+			}
+			handleError(services.PrintLogDiagnostics(appName), 1)
+			return
+		}
+
 		appService := services.NewApplicationService()
 
 		if len(args) > 0 {
@@ -74,6 +86,7 @@ var statusCmd = &cobra.Command{
 func init() {
 	statusCmd.Flags().BoolVarP(&statusDetail, "detail", "d", false, "显示详细状态信息")
 	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "以JSON格式输出")
+	statusCmd.Flags().BoolVar(&debugLogs, "debug-logs", false, "打印日志目录诊断信息（软链接、归档状态）")
 }
 
 // showSingleApplicationStatus 显示单个应用状态

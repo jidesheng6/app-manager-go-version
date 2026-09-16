@@ -129,20 +129,29 @@ app-manager restart myapp
 
 ### 日志留痕
 
-日志文件按“运行周期”留痕，任何一次启动的输出都不会被下一次覆盖：
+日志文件按“运行周期”留痕，任何一次启动的输出都不会被下一次覆盖。目录里**只有普通文件**，
+软链接只在应用运行期间存在，停止即清理：
 
 ```
+运行中：
 project_backend/logs/
-├── party-auth.log                          # 软链接，指向最近一次运行的日志
-├── party-auth-2025-01-01-101530-停止.log   # 第 1 次运行（启动 10:15:30，已停止归档）
-└── party-auth-2025-01-01-140000.log        # 第 2 次运行（当前正在写入）
+├── party-auth.log                          # 软链接 → 本次会话日志（仅运行期存在）
+├── party-auth-2025-01-01-101530-停止.log   # 第 1 次运行（已归档）
+└── party-auth-2025-01-01-140000.log        # 第 2 次运行（正在写入）
+
+已停止：
+project_backend/logs/
+├── party-auth-2025-01-01-101530-停止.log   # 第 1 次运行
+└── party-auth-2025-01-01-140000-停止.log   # 第 2 次运行（链接已清理）
 ```
 
 - 每次 `start` 新建 `<应用名>-yyyy-MM-dd-HHmmss.log`（不会清空旧日志）
-- `stop` / `restart` 时把当前日志改名为 `<应用名>-yyyy-MM-dd-HHmmss-停止.log`
+- `stop` / `restart` 时把该文件改名为 `<应用名>-yyyy-MM-dd-HHmmss-停止.log`，并删除 `<应用名>.log` 链接
+- 归档永远作用于**真实文件**，不会对软链接做 `rename`（否则会把链接变成归档文件、滚出 `-停止(2).log` 这类链子）
+- 同一次停止被重复触发（如 daemon 优雅退出 + `stop` 命令）时幂等：已有归档文件不会被二次改名
 - 程序被 `kill -9`、断电等异常情况下，下次 `start` 会自动补归档上一次的日志
-- `<应用名>.log` 是软链接（Windows 不支持软链接时自动跳过），`logs` / `status` 始终指向可用日志
-- 旧版本遗留的 `<应用名>.log` 真实文件会在下次启动时自动归档迁移
+- 旧版本遗留的 `<应用名>.log` 真实文件、以及历史脏软链接，会在下次 `start` 时自动归档/清理
+- `<应用名>.log` 链接缺失时（应用已停止），`logs` / `status` 自动回退到最近一次运行的日志
 
 ```bash
 # 查看当前日志并实时跟踪
@@ -153,6 +162,10 @@ app-manager logs party-auth --history
 
 # 查看倒数第 2 次运行的日志（序号见 --history 输出）
 app-manager logs party-auth --tail 2 -n 500
+
+# 日志目录诊断：逐个列出文件/软链接、归档状态、悬空链接，并自检软链接语义
+app-manager status --debug-logs
+app-manager status --debug-logs party-auth    # 只看某个应用
 ```
 
 ### 高级命令
@@ -177,6 +190,7 @@ app-manager logs party-auth --tail 2 -n 500
 | `--lines, -n` | 指定行数（日志命令） |
 | `--history` | 列出该应用所有运行周期的日志（日志命令） |
 | `--tail` | 查看指定序号的运行周期日志，1 为最新（日志命令） |
+| `--debug-logs` | 打印日志目录诊断信息：文件/软链接、归档状态、软链接语义自检 |
 
 ## 配置文件
 

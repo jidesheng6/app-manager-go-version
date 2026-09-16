@@ -137,9 +137,88 @@ func parseSessionName(fileName string) (appName string, start time.Time, stopped
 	return strings.TrimSuffix(base, logExt), time.Time{}, false
 }
 
+// resolveRealLogPath 解析日志真实文件路径：
+// 软链接取其目标（目标不存在时返回空字符串），普通文件原样返回
+func resolveRealLogPath(path string) string {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return ""
+	}
+
+	// 不是软链接：普通文件直接用
+	if info.Mode()&os.ModeSymlink == 0 {
+		return path
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		return "" // 悬空链接
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	return path
+}
+
+// isRegularLogFile 判断路径是否为可归档的普通日志文件
+func isRegularLogFile(path string) bool {
+	if path == "" {
+		return false
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	return info.Size() > 0
+}
+
+// nextSessionLogPath 生成本次会话日志路径
+// 同一秒内重复启动时把时间戳顺延 1 秒，保证文件名始终符合 <app>-<yyyy-MM-dd-HHmmss>.log
+func nextSessionLogPath(appName string, start time.Time) string {
+	for i := 0; i < 60; i++ {
+		candidate := NewSessionLogPath(appName, start.Add(time.Duration(i)*time.Second))
+		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	return NewSessionLogPath(appName, time.Now().Add(time.Minute))
+}
+
+// cleanupStraySessionLinks 清理历史版本遗留的日志软链接
+// （会话日志、归档日志都应该是真实文件，出现软链接一定是旧版本的脏数据）
+func cleanupStraySessionLinks(appName string) int {
+	logsDir := config.GetLogsDir()
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		return 0
+	}
+
+	removed := 0
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+
+		name := entry.Name()
+		// <app>.log 是运行期链接，这里不动
+		if name == appName+logExt {
+			continue
+		}
+		// 只清理本应用的会话/归档命名链接，不动其他应用和用户自己建的文件
+		if parsedName, _, _ := parseSessionName(name); parsedName != appName {
+			continue
+		}
+
+		if err := os.Remove(filepath.Join(logsDir, name)); err == nil {
+			removed++
+		}
+	}
+
+	return removed
+}
+
 // nextArchivedPath 生成不与现有文件冲突的归档路径
 func nextArchivedPath(path string) string {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
 		return path
 	}
 
@@ -147,7 +226,7 @@ func nextArchivedPath(path string) string {
 	base := strings.TrimSuffix(path, ext)
 	for i := 2; i < 1000; i++ {
 		candidate := fmt.Sprintf("%s(%d)%s", base, i, ext)
-		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
 			return candidate
 		}
 	}
@@ -155,14 +234,19 @@ func nextArchivedPath(path string) string {
 }
 
 // archiveLogFile 把正在写入的日志文件改名为归档文件 <app>-<启动时间>-停止.log
-// 幂等：已归档的文件直接原样返回
+//
+// 只接受普通文件：软链接必须先由调用方解析成真实路径，
+// 否则 os.Rename 会重命名软链接本身（线上曾因此滚出 -停止(2).log -> -停止.log 的链子）。
 func archiveLogFile(path string) (string, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
 		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("拒绝直接归档软链接（应先解析真实路径）: %s", path)
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("日志路径是目录: %s", path)
@@ -220,8 +304,9 @@ func ArchiveLegacyLog(appName string) (string, error) {
 }
 
 // ResolveCurrentLog 解析应用“当前”使用的日志文件：
-//  1. <app>.log（软链接或旧版真实文件，存在即优先）
-//  2. 最新的会话日志
+//  1. <app>.log（运行期软链接，或旧版遗留的真实文件）
+//  2. 最新一次未归档的会话日志
+//  3. 最近一次归档日志（应用已停止时，让它指向最后一次运行的输出）
 //
 // 找不到时返回空字符串
 func ResolveCurrentLog(appName string) string {
@@ -237,6 +322,10 @@ func ResolveCurrentLog(appName string) string {
 		}
 	}
 
+	if newest := newestActiveSessionLog(appName); newest != nil {
+		return newest.Path
+	}
+
 	if newest := newestSessionLog(appName); newest != nil {
 		return newest.Path
 	}
@@ -244,8 +333,13 @@ func ResolveCurrentLog(appName string) string {
 	return ""
 }
 
-// linkCurrentLog 维护 <app>.log 软链接指向最新的会话日志（不支持软链接时静默跳过）
+// linkCurrentLog 建立运行期软链接 <app>.log -> 本次会话日志
+// 拒绝指向归档文件：软链接只在应用运行期间有意义，停止后由 removeCurrentLogLink 清理
 func linkCurrentLog(appName, target string) {
+	if target == "" || hasStoppedMark(filepath.Base(target)) {
+		return
+	}
+
 	linkPath := CurrentLogLinkPath(appName)
 	if filepath.Clean(linkPath) == filepath.Clean(target) {
 		return
@@ -316,11 +410,143 @@ func CountLogSessions(appName string) int {
 	return len(ListLogSessions(appName))
 }
 
-// newestSessionLog 返回最新的日志会话，没有会话日志时返回 nil
+// newestSessionLog 返回最新的日志会话（含已归档），没有会话日志时返回 nil
 func newestSessionLog(appName string) *LogSession {
 	sessions := ListLogSessions(appName)
 	if len(sessions) == 0 {
 		return nil
 	}
 	return sessions[0]
+}
+
+// newestActiveSessionLog 返回最新的未归档会话（即上一次运行还开着的日志）
+func newestActiveSessionLog(appName string) *LogSession {
+	for _, session := range ListLogSessions(appName) {
+		if !session.Stopped {
+			return session
+		}
+	}
+	return nil
+}
+
+// PrintLogDiagnostics 打印日志目录诊断信息（只读，用于排查留痕/软链接问题）
+func PrintLogDiagnostics(appName string) error {
+	logsDir := config.GetLogsDir()
+	fmt.Printf("日志目录: %s\n", logsDir)
+
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		return fmt.Errorf("读取日志目录失败: %w", err)
+	}
+
+	fmt.Printf("目录项: %d\n\n", len(entries))
+
+	links, files := 0, 0
+	for _, entry := range entries {
+		fullPath := filepath.Join(logsDir, entry.Name())
+		info, err := os.Lstat(fullPath)
+		if err != nil {
+			fmt.Printf("  %-70s [读取失败: %v]\n", entry.Name(), err)
+			continue
+		}
+
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			links++
+			target, linkErr := os.Readlink(fullPath)
+			if linkErr != nil {
+				target = "[读取链接失败]"
+			}
+			state := "有效"
+			if _, statErr := os.Stat(fullPath); statErr != nil {
+				state = "悬空(目标不存在)"
+			}
+			if appName != "" && !strings.HasPrefix(entry.Name(), appName) {
+				continue
+			}
+			fmt.Printf("  [链接] %-60s -> %s  %s\n", entry.Name(), target, state)
+		case info.IsDir():
+			continue
+		default:
+			files++
+			if appName != "" && !strings.HasPrefix(entry.Name(), appName) {
+				continue
+			}
+			name, start, stopped := parseSessionName(entry.Name())
+			kind := "未知命名"
+			if name != "" && !start.IsZero() {
+				if stopped {
+					kind = "归档(已停止)"
+				} else {
+					kind = "会话(未归档)" + warnIfOld(start)
+				}
+			}
+			fmt.Printf("  [文件] %-60s %8d 字节  %s  %s\n",
+				entry.Name(), info.Size(), kind, info.ModTime().Format("2006-01-02 15:04:05"))
+		}
+	}
+
+	fmt.Printf("\n汇总: 普通文件 %d 个，软链接 %d 个\n", files, links)
+
+	if links > 0 {
+		fmt.Println("\n提示: 归档文件与会话日志都应是普通文件；出现软链接说明是旧版本遗留的脏数据，")
+		fmt.Println("      执行一次 start 会自动清理本应用的会话命名脏链接。")
+	}
+
+	// 软链接语义自检：确认本机 os.Symlink/os.Rename 行为符合预期
+	fmt.Println()
+	return checkSymlinkSemantics(logsDir)
+}
+
+// warnIfOld 未归档会话额外提示（可能是异常退出留下的）
+func warnIfOld(start time.Time) string {
+	if time.Since(start) > 24*time.Hour {
+		return "  ← 超过 24h 仍未归档，可能是异常退出遗留"
+	}
+	return ""
+}
+
+// checkSymlinkSemantics 在当前机器上实测软链接 + rename 语义
+func checkSymlinkSemantics(logsDir string) error {
+	probe := filepath.Join(logsDir, ".symlink-probe.log")
+	target := filepath.Join(logsDir, ".symlink-probe-target.log")
+
+	cleanup := func() {
+		_ = os.Remove(probe)
+		_ = os.Remove(target)
+		_ = os.Remove(probe + ".moved")
+	}
+	cleanup()
+	defer cleanup()
+
+	if err := os.WriteFile(target, []byte("probe\n"), 0644); err != nil {
+		return fmt.Errorf("软链接自检: 创建探测文件失败: %w", err)
+	}
+	if err := os.Symlink(filepath.Base(target), probe); err != nil {
+		fmt.Printf("软链接自检: 跳过（当前环境不支持软链接: %v）\n", err)
+		fmt.Println("            Windows 上 <app>.log 会退化为“按最新会话日志查找”，Linux 上正常工作。")
+		return nil
+	}
+
+	moved := probe + ".moved"
+	if err := os.Rename(probe, moved); err != nil {
+		return fmt.Errorf("软链接自检: rename 失败: %w", err)
+	}
+
+	movedInfo, err := os.Lstat(moved)
+	if err != nil {
+		return fmt.Errorf("软链接自检: 读取 rename 结果失败: %w", err)
+	}
+
+	if movedInfo.Mode()&os.ModeSymlink != 0 {
+		fmt.Println("软链接自检: 通过（rename 作用于链接本身 → 代码已改为先解析真实路径再归档）")
+	} else {
+		fmt.Println("软链接自检: 当前系统 rename 作用于目标文件（与设计假设不同，请反馈）")
+	}
+
+	if _, err := os.Stat(target); err != nil {
+		fmt.Println("           注意: 探测目标文件被移动，归档逻辑需复核")
+	}
+
+	return nil
 }
