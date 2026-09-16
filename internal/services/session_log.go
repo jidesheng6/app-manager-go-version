@@ -2,6 +2,7 @@ package services
 
 import (
 	"app-manager-go-v1/internal/config"
+	"app-manager-go-v1/internal/logger"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -560,6 +561,77 @@ func newestActiveSessionLog(appName string) *LogSession {
 	return nil
 }
 
+// describeKeepPolicy 生成保留策略的可读描述
+func describeKeepPolicy(keepCount int) string {
+	switch {
+	case keepCount < 0:
+		return "不限制，保留全部留痕"
+	case keepCount == 0:
+		return "不留归档，每次停止后清理（只保留当前正在写入的日志）"
+	default:
+		return fmt.Sprintf("每个应用保留最近 %d 份归档日志，超出后自动删除最旧的", keepCount)
+	}
+}
+
+// excessArchivedLogs 返回超出保留份数的归档日志数量（负数表示不限制）
+func excessArchivedLogs(sessions []*LogSession, keepCount int) int {
+	if keepCount < 0 {
+		return 0
+	}
+
+	archived := 0
+	for _, session := range sessions {
+		if session.Stopped {
+			archived++
+		}
+	}
+
+	if archived <= keepCount {
+		return 0
+	}
+	return archived - keepCount
+}
+
+// pruneArchivedLogs 按保留份数清理最旧的归档日志
+//
+// 保留策略（份数由配置 application.log_keep_count 决定，默认 7）：
+//   - 正整数: 保留最近 N 份归档，其余删除
+//   - 0     : 归档全部删除（只留当前正在写入的日志）
+//   - 负数  : 不限制，全部保留
+//
+// 只处理**已归档**的日志，正在写入的会话日志永远不动。
+//
+// 返回本次删除的份数
+func pruneArchivedLogs(appName string, keepCount int) int {
+	if keepCount < 0 {
+		return 0 // 负数 = 不限制
+	}
+
+	var archived []*LogSession
+	for _, session := range ListLogSessions(appName) {
+		if session.Stopped {
+			archived = append(archived, session)
+		}
+	}
+
+	if len(archived) <= keepCount {
+		return 0
+	}
+
+	removed := 0
+	for _, session := range archived[keepCount:] {
+		if err := os.Remove(session.Path); err != nil {
+			logger.Warning("清理旧日志失败 %s: %v", filepath.Base(session.Path), err)
+			continue
+		}
+		logger.Info("已清理超出保留份数的旧日志: %s（保留最近 %d 份）",
+			filepath.Base(session.Path), keepCount)
+		removed++
+	}
+
+	return removed
+}
+
 // PrintLogDiagnostics 打印日志目录诊断信息（只读，用于排查留痕/软链接问题）
 func PrintLogDiagnostics(appName string) error {
 	logsDir := config.GetLogsDir()
@@ -621,10 +693,20 @@ func PrintLogDiagnostics(appName string) error {
 	}
 
 	fmt.Printf("\n汇总: 普通文件 %d 个，软链接 %d 个\n", files, links)
+	fmt.Printf("保留策略: %s（application.log_keep_count）\n", describeKeepPolicy(config.KeepLogCount()))
 
 	if links > 0 {
 		fmt.Println("\n提示: 归档文件与会话日志都应是普通文件；出现软链接说明是旧版本遗留的脏数据，")
 		fmt.Println("      执行一次 start 会自动清理本应用的会话命名脏链接。")
+	}
+
+	// 超出保留份数的归档日志（下次 start/stop 会自动清理）
+	if appName != "" {
+		if sessions := ListLogSessions(appName); len(sessions) > 0 {
+			if excess := excessArchivedLogs(sessions, config.KeepLogCount()); excess > 0 {
+				fmt.Printf("\n超量日志: %d 份将在下次 start/stop 时自动清理（最旧的先删）\n", excess)
+			}
+		}
 	}
 
 	// 软链接语义自检：确认本机 os.Symlink/os.Rename 行为符合预期

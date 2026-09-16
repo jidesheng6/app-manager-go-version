@@ -43,7 +43,11 @@ type ApplicationConfig struct {
 	JVMParams       string `mapstructure:"jvm_params" ini:"jvm_params"`
 	StartupDelay    int    `mapstructure:"startup_delay" ini:"startup_delay"`       // 启动间隔时间(秒)
 	DefaultPriority int    `mapstructure:"default_priority" ini:"default_priority"` // 默认优先级
+	LogKeepCount    int    `mapstructure:"log_keep_count" ini:"log_keep_count"`     // 每个应用保留的日志份数(运行周期)
 }
+
+// DefaultLogKeepCount 每个应用默认保留的日志份数（可在 .ini 中通过 log_keep_count 调整）
+const DefaultLogKeepCount = 7
 
 // ApplicationsConfig 应用优先级配置
 type ApplicationsConfig map[string]int
@@ -115,8 +119,9 @@ func (g *DefaultConfigGenerator) GenerateDefaultConfig() *Config {
 			NacosNamespace: "",
 		},
 		Application: ApplicationConfig{
-			AppType:   "mixed",
-			JVMParams: "",
+			AppType:      "mixed",
+			JVMParams:    "",
+			LogKeepCount: DefaultLogKeepCount,
 		},
 		Monitoring: MonitoringConfig{
 			EnableDiskIO:     true,
@@ -540,6 +545,17 @@ func GetRotateLogsDir() string {
 // GetConfigDir 获取配置目录
 func GetConfigDir() string {
 	return filepath.Join(GetBackendDir(), "config")
+}
+
+// KeepLogCount 获取每个应用保留的日志份数
+//   - 正整数: 归档日志保留份数（正在写入的那份不计数）
+//   - 0     : 不留归档（每次停止后清理，只保留当前正在写入的日志）
+//   - 负数  : 不限制，保留全部留痕
+func KeepLogCount() int {
+	if AppConfig == nil {
+		return DefaultLogKeepCount
+	}
+	return AppConfig.Application.LogKeepCount
 }
 
 // IsNacosEnabled 检查是否启用了Nacos

@@ -153,6 +153,8 @@ project_backend/logs/
 - 程序被 `kill -9`、断电等异常情况下，下次 `start` 会自动补归档上一次的日志
 - 旧命名（`<应用名>-<启动时间>.log` / `…-停止.log`）与旧版固定命名 `<应用名>.log` 都会被自动识别、归档迁移
 - `<应用名>.log` 链接缺失时（应用已停止），`logs` / `status` 自动回退到最近一次运行的日志
+- **保留份数**：每个应用最多保留最近 7 份归档日志（`application.log_keep_count`，见下方配置说明），
+  超出后自动删除最旧的；正在写入的那份不计数、也不会被删
 
 ```bash
 # 查看当前日志并实时跟踪
@@ -229,6 +231,10 @@ jvm_params="-Xms512m -Xmx1024m -XX:+UseG1GC"
 startup_delay=0
 # 默认优先级 [选填，默认：100]
 default_priority=100
+# 每个应用保留的归档日志份数 [选填，默认：7]
+# 正整数=保留最近 N 份；0=不留归档（每次停止后清理）；负数=不限制
+# 超出份数后自动删除最旧的归档日志，正在写入的那份不计数也不会被删
+log_keep_count=7
 
 [applications]
 # 单个应用的特殊配置，格式为：appName.priority 和 appName.startup_delay

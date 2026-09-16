@@ -239,7 +239,8 @@ func (s *ApplicationService) StopApplication(app *models.Application) error {
 	return s.archiveAndReport(app)
 }
 
-// archiveAndReport 归档会话日志并把结果写入 app.LogFile（供 StopApplication 与异常分支复用）
+// archiveAndReport 归档会话日志并按保留份数清理旧日志
+// （供 StopApplication 与异常分支复用）
 func (s *ApplicationService) archiveAndReport(app *models.Application) error {
 	archived, err := s.archiveSessionLog(app)
 	if err != nil {
@@ -249,6 +250,12 @@ func (s *ApplicationService) archiveAndReport(app *models.Application) error {
 	if archived != "" {
 		logger.Info("日志已归档: %s", filepath.Base(archived))
 	}
+
+	// 归档完成后按配置的保留份数清理最旧的归档日志
+	if removed := pruneArchivedLogs(app.Name, config.KeepLogCount()); removed > 0 {
+		logger.Info("已清理 %d 份超出保留份数的历史日志", removed)
+	}
+
 	return nil
 }
 
@@ -389,9 +396,14 @@ func (s *ApplicationService) prepareSessionLog(app *models.Application) (string,
 		}
 	}
 
-	// 本次会话日志：同秒重复启动时加序号，避免复用同一文件
+	// 本次会话日志：<app>-<启动时间>启动.log（同秒重复启动时时间戳顺延）
 	logPath := nextSessionLogPath(app.Name, time.Now())
 	logger.Info("本次运行日志: %s", filepath.Base(logPath))
+
+	// 启动前兜底清理超量历史日志（异常退出、手工放回旧文件等情况）
+	if removed := pruneArchivedLogs(app.Name, config.KeepLogCount()); removed > 0 {
+		logger.Info("已清理 %d 份超出保留份数的历史日志（保留 %d 份）", removed, config.KeepLogCount())
+	}
 
 	return logPath, nil
 }
