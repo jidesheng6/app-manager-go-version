@@ -54,12 +54,32 @@
 git clone <repository-url>
 cd app-manager-go-v1
 
-# 编译
+# 编译（推荐：脚本会把当前提交号/分支注入二进制）
+pwsh ./build-linux.ps1                       # 产出 dist/app-manager-linux-{amd64,arm64} + BUILD-INFO.txt
+pwsh ./build-windows.ps1                     # 产出 dist/app-manager.exe
+pwsh ./build-linux.ps1 -Version v1.0.2       # 手动指定版本号
+
+# 或者手动编译（不带 git 信息也能跑，只是 status/version 里看不到提交号）
 go build -o app-manager main.go
 
 # 安装到系统路径（可选）
 sudo mv app-manager /usr/local/bin/
 ```
+
+**为什么要用脚本编译**：脚本会把 `git rev-parse` 得到的提交号、分支、是否有未提交改动注入二进制。
+部署到服务器后，`app-manager status` / `app-manager version` 就能直接显示这份二进制来自哪个提交，
+再也不用靠"这个包是不是最新的"来猜。
+
+```bash
+$ app-manager version
+app-manager version v1.0.2
+Build:   10980d9 (feat/log-retention@10980d9, 工作区有未提交改动, 构建于 2026-09-16T16:36:40)
+代码目录: /opt/party/project_backend
+当前仓库: feat/log-retention@10980d9 [干净] 提交于 2026-09-16 16:33:08
+注意: 二进制由 10980d9 构建，当前目录是 3f2a1b0 —— 建议重新编译后再操作   # 版本漂移时才出现
+```
+
+`app-manager status` 的系统信息段同样会打印这两行（不注入 git 信息时会提示如何构建）。
 
 ### 下载预编译版本
 
