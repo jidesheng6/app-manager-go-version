@@ -28,6 +28,23 @@ var (
 	debugLogs    bool
 )
 
+// cpuUnit 当前 CPU 展示单位（读配置，默认 core）
+func cpuUnit() models.CPUUnit {
+	return models.ParseCPUUnit(config.GetCPUUnit())
+}
+
+// cpuUnitLabel 表头里的单位标签
+func cpuUnitLabel() string {
+	switch cpuUnit() {
+	case models.CPUUnitMilli:
+		return "m"
+	case models.CPUUnitPercent:
+		return "%"
+	default:
+		return "核"
+	}
+}
+
 // statusCmd 状态命令
 var statusCmd = &cobra.Command{
 	Use:   "status [application_name]",
@@ -184,7 +201,7 @@ func showSystemInfo() {
 	logger.Info("系统信息:")
 	logger.Printf("主机名: \033[33m%s\033[0m\n", systemInfo["hostname"])
 	logger.Printf("IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
-	logger.Printf("CPU核心: \033[33m%s\033[0m \033[90m(CPU使用量单位 core: 1.00 core = 1 个核)\033[0m\n", systemInfo["cpu_count"])
+	logger.Printf("CPU核心: \033[33m%s\033[0m \033[90m(%s)\033[0m\n", systemInfo["cpu_count"], models.CPUUnitHint())
 	logger.Printf("版本: \033[35m%s\033[0m\n", version.BuildLine(Version))
 	logger.Printf("代码版本: %s\n", version.RepoLine(version.Live(config.GetProjectRoot())))
 	if hint := version.DriftHint(version.Embedded(), version.Live(config.GetProjectRoot())); hint != "" {
@@ -215,8 +232,9 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 	}
 
 	if status.CPUUsage != "" {
-		// 详情里给出 core + millicore + 整机占比
-		logger.Printf("CPU使用量: \033[33m%s\033[0m\n", app.GetCPUDetailString())
+		// 详情：按配置单位展示，并给出换算过程
+		logger.Printf("CPU使用量: \033[33m%s\033[0m\n",
+			models.FormatCPUDetailByUnit(app.GetProcessInfo().CPUPercent, cpuUnit()))
 	} else {
 		logger.Printf("CPU使用量: \033[33m0.00 core\033[0m\n")
 	}
@@ -296,7 +314,7 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	logger.Info("[调试] 步骤1/2: 批量获取进程信息完成。")
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU(核)", "内存", "使用内存", "磁盘读", "磁盘写", "网络收", "网络发", "端口"})
+	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU(" + cpuUnitLabel() + ")", "内存", "使用内存", "磁盘读", "磁盘写", "网络收", "网络发", "端口"})
 	table.SetBorder(true)
 	table.SetRowLine(false) // 减少行线以降低表格高度
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
@@ -364,10 +382,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			uptimeStr = status.Uptime
 		}
 
-		// CPU：单位 core（1.00 core = 1 个核），超过 1 个核时附 millicore
+		// CPU：默认以核为单位（1.00 core = 1 个核），单位可在 .ini 配置
 		cpuStr := "0.00"
 		if procInfo.CPUPercent > 0 {
-			cpuStr = models.FormatCPUWithHost(procInfo.CPUPercent)
+			cpuStr = models.FormatCPUByUnit(procInfo.CPUPercent, cpuUnit())
 		}
 
 		memoryStr := "0%"
@@ -442,10 +460,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 		avgCore := totalCore / float64(runningCount)
 		avgMem := totalMem / float64(runningCount)
 
-		// 合计/均值都给核数，并标注机器总算力（核数）
+		// 合计/均值按配置单位展示，并标注机器总算力（核数）
 		avgCPUStr = fmt.Sprintf("Σ %s (Avg %s / %d核)",
-			models.FormatCPUCoreFromCore(totalCore),
-			models.FormatCPUCoreFromCore(avgCore),
+			models.FormatCPUCoreTotal(totalCore, cpuUnit()),
+			models.FormatCPUCoreTotal(avgCore, cpuUnit()),
 			models.CPUCount())
 		avgMemStr = fmt.Sprintf("Avg %.1f%%", avgMem)
 	}

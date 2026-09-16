@@ -45,10 +45,15 @@ type ApplicationConfig struct {
 	StartupDelay    int    `mapstructure:"startup_delay" ini:"startup_delay"`       // 启动间隔时间(秒)
 	DefaultPriority int    `mapstructure:"default_priority" ini:"default_priority"` // 默认优先级
 	LogKeepCount    int    `mapstructure:"log_keep_count" ini:"log_keep_count"`     // 每个应用保留的日志份数(运行周期)
+	CPUUnit         string `mapstructure:"cpu_unit" ini:"cpu_unit"`                 // CPU 展示单位: core(默认) / m / percent
 }
 
-// DefaultLogKeepCount 每个应用默认保留的日志份数（可在 .ini 中通过 log_keep_count 调整）
-const DefaultLogKeepCount = 7
+const (
+	// DefaultLogKeepCount 每个应用默认保留的日志份数（可在 .ini 中通过 log_keep_count 调整）
+	DefaultLogKeepCount = 7
+	// DefaultCPUUnit CPU 展示默认单位: 核数（1.00 core = 1 个核跑满）
+	DefaultCPUUnit = "core"
+)
 
 // ApplicationsConfig 应用优先级配置
 type ApplicationsConfig map[string]int
@@ -123,6 +128,7 @@ func (g *DefaultConfigGenerator) GenerateDefaultConfig() *Config {
 			AppType:      "mixed",
 			JVMParams:    "",
 			LogKeepCount: DefaultLogKeepCount,
+			CPUUnit:      DefaultCPUUnit,
 		},
 		Monitoring: MonitoringConfig{
 			EnableDiskIO:     true,
@@ -557,6 +563,14 @@ func KeepLogCount() int {
 		return DefaultLogKeepCount
 	}
 	return AppConfig.Application.LogKeepCount
+}
+
+// GetCPUUnit 获取 CPU 展示单位（core / m / percent），未配置时返回默认值 core
+func GetCPUUnit() string {
+	if AppConfig == nil || AppConfig.Application.CPUUnit == "" {
+		return DefaultCPUUnit
+	}
+	return AppConfig.Application.CPUUnit
 }
 
 // IsNacosEnabled 检查是否启用了Nacos

@@ -111,6 +111,91 @@ func CPUCore(perCorePercent float64) float64 {
 	return perCorePercent * perCorePercentToCore
 }
 
+// CPUUnit CPU 展示单位
+type CPUUnit int
+
+const (
+	// CPUUnitCore 以核为单位（默认）: 1.25 core
+	CPUUnitCore CPUUnit = iota
+	// CPUUnitMilli 以 millicore 为单位: 1250m
+	CPUUnitMilli
+	// CPUUnitPercent 以整机占比为单位: 6.2%
+	CPUUnitPercent
+)
+
+// ParseCPUUnit 解析配置中的单位名称，无法识别时回退到核数
+func ParseCPUUnit(value string) CPUUnit {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "m", "milli", "millicore", "millicores":
+		return CPUUnitMilli
+	case "percent", "%", "pct", "ratio":
+		return CPUUnitPercent
+	default:
+		return CPUUnitCore
+	}
+}
+
+// String 单位名称
+func (u CPUUnit) String() string {
+	switch u {
+	case CPUUnitMilli:
+		return "m"
+	case CPUUnitPercent:
+		return "percent"
+	default:
+		return "core"
+	}
+}
+
+// FormatCPUByUnit 按指定单位格式化 CPU 使用量
+//   - core:    1.25 core（超过 1 核附精确值 2.50 core (2500m)）
+//   - m:       1250m
+//   - percent: 6.2%（占整机比例）
+func FormatCPUByUnit(perCorePercent float64, unit CPUUnit) string {
+	switch unit {
+	case CPUUnitMilli:
+		return FormatCPUMilli(perCorePercent)
+	case CPUUnitPercent:
+		return FormatCPUHost(perCorePercent)
+	default:
+		return FormatCPUWithHost(perCorePercent)
+	}
+}
+
+// FormatCPUDetailByUnit 详情展示（含换算过程），按指定单位
+func FormatCPUDetailByUnit(perCorePercent float64, unit CPUUnit) string {
+	core := CPUCore(perCorePercent)
+
+	switch unit {
+	case CPUUnitMilli:
+		return fmt.Sprintf("%s (%s, 整机 %s / %d核)",
+			FormatCPUMilliFromCore(core), FormatCPUCoreFromCore(core),
+			FormatCPUHostFromCore(core), CPUCount())
+	case CPUUnitPercent:
+		return fmt.Sprintf("%s (%.2f core / %s, %d核)",
+			FormatCPUHostFromCore(core), core, FormatCPUMilliFromCore(core), CPUCount())
+	default:
+		return FormatCPUDetail(perCorePercent)
+	}
+}
+
+// FormatCPUCoreTotal 合计/均值展示，按指定单位（传入的已是核数）
+func FormatCPUCoreTotal(core float64, unit CPUUnit) string {
+	switch unit {
+	case CPUUnitMilli:
+		return FormatCPUMilliFromCore(core)
+	case CPUUnitPercent:
+		return FormatCPUHostFromCore(core)
+	default:
+		return FormatCPUCoreFromCore(core)
+	}
+}
+
+// CPUUnitHint 单位说明文本（给 status 系统信息行用）
+func CPUUnitHint() string {
+	return "CPU使用量单位 core: 1.00 core = 1 个核, 可在 .ini 中配置 application.cpu_unit=core|m|percent"
+}
+
 // CPUMilli 把 ps 的单核口径百分比换算成 millicore（1000m = 1 核）
 //
 //	pcpu 100% => 1000m，pcpu 250% => 2500m
