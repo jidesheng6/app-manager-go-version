@@ -184,7 +184,7 @@ func showSystemInfo() {
 	logger.Info("系统信息:")
 	logger.Printf("主机名: \033[33m%s\033[0m\n", systemInfo["hostname"])
 	logger.Printf("IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
-	logger.Printf("CPU核心: \033[33m%s\033[0m (CPU使用率按此核数归一化)\n", systemInfo["cpu_count"])
+	logger.Printf("CPU核心: \033[33m%s\033[0m \033[90m(CPU使用量单位 core: 1.00 core = 1 个核)\033[0m\n", systemInfo["cpu_count"])
 	logger.Printf("版本: \033[35m%s\033[0m\n", version.BuildLine(Version))
 	logger.Printf("代码版本: %s\n", version.RepoLine(version.Live(config.GetProjectRoot())))
 	if hint := version.DriftHint(version.Embedded(), version.Live(config.GetProjectRoot())); hint != "" {
@@ -215,8 +215,10 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 	}
 
 	if status.CPUUsage != "" {
-		logger.Printf("CPU使用率: \033[33m%s\033[0m  \033[90m(整机口径 / %d 核)\033[0m\n",
-			status.CPUUsage, models.CPUCount())
+		// 详情里给出 core + millicore + 整机占比
+		logger.Printf("CPU使用量: \033[33m%s\033[0m\n", app.GetCPUDetailString())
+	} else {
+		logger.Printf("CPU使用量: \033[33m0.00 core\033[0m\n")
 	}
 
 	if status.MemoryUsage != "" {
@@ -294,7 +296,7 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	logger.Info("[调试] 步骤1/2: 批量获取进程信息完成。")
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU", "内存", "使用内存", "磁盘读", "磁盘写", "网络收", "网络发", "端口"})
+	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU(核)", "内存", "使用内存", "磁盘读", "磁盘写", "网络收", "网络发", "端口"})
 	table.SetBorder(true)
 	table.SetRowLine(false) // 减少行线以降低表格高度
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
@@ -362,8 +364,8 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			uptimeStr = status.Uptime
 		}
 
-		// CPU：单核口径超过 100% 时同时标注整机口径
-		cpuStr := "0.0%"
+		// CPU：单位 core（1.00 core = 1 个核），超过 1 个核时附 millicore
+		cpuStr := "0.00"
 		if procInfo.CPUPercent > 0 {
 			cpuStr = models.FormatCPUWithHost(procInfo.CPUPercent)
 		}
@@ -432,14 +434,19 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	// 添加合计行
 	totalCount := len(apps)
 
-	avgCPUStr := "0.0%"
+	avgCPUStr := "0.00"
 	avgMemStr := "0.0%"
 	if runningCount > 0 {
-		// CPU 换算成整机口径再求平均，保证 0~100% 且可跨应用理解
-		avgCPU := models.CPUPercentOfHost(totalCPU) / float64(runningCount)
+		// CPU 用核数汇总：绝对量可跨应用相加，与机器核数无关
+		totalCore := models.CPUCore(totalCPU)
+		avgCore := totalCore / float64(runningCount)
 		avgMem := totalMem / float64(runningCount)
 
-		avgCPUStr = fmt.Sprintf("Avg %.1f%%", avgCPU)
+		// 合计/均值都给核数，并标注机器总算力（核数）
+		avgCPUStr = fmt.Sprintf("Σ %s (Avg %s / %d核)",
+			models.FormatCPUCoreFromCore(totalCore),
+			models.FormatCPUCoreFromCore(avgCore),
+			models.CPUCount())
 		avgMemStr = fmt.Sprintf("Avg %.1f%%", avgMem)
 	}
 

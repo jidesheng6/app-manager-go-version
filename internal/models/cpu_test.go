@@ -46,38 +46,52 @@ func TestCPUPercentOfHost(t *testing.T) {
 	}
 }
 
-// TestFormatCPU 展示格式: 单核口径 + 整机口径
+// TestFormatCPU 展示格式: core 为主，millicore 为精确值
 func TestFormatCPU(t *testing.T) {
 	cores := CPUCount()
 
-	// 未超过 100%: 只显示单核口径
-	if got := FormatCPUWithHost(80); got != "80.0%" {
-		t.Fatalf("≤100%% 时格式错误: %s", got)
+	// ps 的 pcpu 100% = 1 个核跑满
+	if got := FormatCPUCore(100); got != "1.00 core" {
+		t.Fatalf("100%%(单核) 应为 1.00 core，实际 %s", got)
+	}
+	if got := FormatCPUMilli(100); got != "1000m" {
+		t.Fatalf("100%%(单核) 应为 1000m，实际 %s", got)
+	}
+	if got := FormatCPUCore(250); got != "2.50 core" {
+		t.Fatalf("250%%(单核) 应为 2.50 core，实际 %s", got)
+	}
+	if got := FormatCPUMilli(250); got != "2500m" {
+		t.Fatalf("250%%(单核) 应为 2500m，实际 %s", got)
+	}
+	if got := FormatCPUCore(8); got != "0.08 core" {
+		t.Fatalf("8%%(单核) 应为 0.08 core，实际 %s", got)
 	}
 
-	if got := FormatCPUPerCore(150); got != "150.0%" {
-		t.Fatalf("单核口径格式错误: %s", got)
+	// 列表展示: ≤1 核只给 core，>1 核附 millicore
+	if got := FormatCPUWithHost(80); got != "0.80 core" {
+		t.Fatalf("≤1 核时格式错误: %s", got)
 	}
-
-	hostOnly := FormatCPUHost(150)
-	if !strings.HasSuffix(hostOnly, "%") {
-		t.Fatalf("整机口径格式错误: %s", hostOnly)
-	}
-
 	if cores > 1 {
-		withHost := FormatCPUWithHost(150)
-		if !strings.Contains(withHost, "150.0%") || !strings.Contains(withHost, "整机") {
-			t.Fatalf(">100%% 时应同时给出整机口径: %s", withHost)
+		got := FormatCPUWithHost(150)
+		if !strings.Contains(got, "1.50 core") || !strings.Contains(got, "1500m") {
+			t.Fatalf(">1 核时应同时给出 core 与 m: %s", got)
 		}
-		if !strings.Contains(withHost, "核") {
-			t.Fatalf("说明中应包含核数: %s", withHost)
-		}
+	}
 
-		// 主展示（给 status 用的 CPUUsage）以整机口径开头
-		main := FormatCPUHostWithPerCore(150)
-		if !strings.HasPrefix(main, hostOnly) {
-			t.Fatalf("主展示应以整机口径开头: %s", main)
+	// 详情展示: core + m + 整机占比 + 核数
+	detail := FormatCPUDetail(150)
+	for _, want := range []string{"1.50 core", "1500m", "整机", "核"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("详情缺少 %q: %s", want, detail)
 		}
+	}
+
+	// 核数换算：吃满所有核 => 整机 100%
+	if got := CPUCore(float64(cores) * 100); got != float64(cores) {
+		t.Fatalf("吃满 %d 核应为 %.1f core，实际 %.1f", cores, float64(cores), got)
+	}
+	if got := FormatCPUHostFromCore(float64(cores)); got != "100.0%" {
+		t.Fatalf("吃满所有核应显示整机 100%%，实际 %s", got)
 	}
 }
 

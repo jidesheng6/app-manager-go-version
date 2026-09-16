@@ -11,15 +11,26 @@ import (
 	"sync"
 )
 
-// CPU 使用率的口径说明
+// CPU 使用量的口径说明
 //
-// ps 的 pcpu 是"占**单核**的百分比"：一个进程跑满 1 个核 = 100%，
-// 跑满 2 个核 = 200%。所以多核服务器上这个值会超过 100%（上限 = 核数 × 100%）。
-// 之前把它直接截断到 100%，多核高负载时看起来永远只有 100%，既不准确也丢信息。
+// ps 的 pcpu 是"占**单核**的百分比"：跑满 1 个核 = 100%，跑满 2 个核 = 200%。
+// 多核服务器上该值会超过 100%（上限 = 核数 × 100%），早期版本直接截断到 100%，
+// 既不准也丢信息。
 //
-// 现在统一用两个口径：
-//   - 单核口径(per-core)：ps 原值，0 ~ 核数×100%，能看出吃满了几个核
-//   - 整机口径(host)    ：per-core / 核数，0 ~ 100%，和 top 的整机占用一致，可跨应用相加
+// 现在对外统一用 **core（核）** 作为主单位，同时给出 millicore 精确值：
+//
+//	pcpu 100% => 1.00 core (1000m)
+//	pcpu 250% => 2.50 core (2500m)
+//
+// core 是绝对量、与机器核数无关，多核高负载不会被截断，也能跨应用直接相加；
+// 需要"占整机百分比"时再按核数换算：host% = core / 核数 × 100。
+
+const (
+	// MilliPerCore 一个完整核心对应的 millicore 数
+	MilliPerCore = 1000
+	// perCorePercentToCore ps 的 pcpu(占单核百分比) 换算成核数的系数
+	perCorePercentToCore = 0.01
+)
 
 var (
 	cpuCountOnce  sync.Once
@@ -90,7 +101,92 @@ func normalizeCPUCount(total int, quota float64) int {
 	return total
 }
 
-// CPUPercentOfHost 把 ps 的单核口径百分比换算成整机口径（0~100）
+// CPUCore 把 ps 的单核口径百分比换算成核数
+//
+//	pcpu 100% => 1.0 核，pcpu 250% => 2.5 核
+func CPUCore(perCorePercent float64) float64 {
+	if perCorePercent <= 0 {
+		return 0
+	}
+	return perCorePercent * perCorePercentToCore
+}
+
+// CPUMilli 把 ps 的单核口径百分比换算成 millicore（1000m = 1 核）
+//
+//	pcpu 100% => 1000m，pcpu 250% => 2500m
+func CPUMilli(perCorePercent float64) float64 {
+	return CPUCore(perCorePercent) * MilliPerCore
+}
+
+// FormatCPU 主展示单位: 核数，如 "2.50"、"0.08"
+func FormatCPU(perCorePercent float64) string {
+	return fmt.Sprintf("%.2f", CPUCore(perCorePercent))
+}
+
+// FormatCPUCore 带单位: 如 "2.50 core"
+func FormatCPUCore(perCorePercent float64) string {
+	return fmt.Sprintf("%.2f core", CPUCore(perCorePercent))
+}
+
+// FormatCPUMilli millicore 精确值，如 "2500m"、"80m"
+func FormatCPUMilli(perCorePercent float64) string {
+	return fmt.Sprintf("%.0fm", CPUMilli(perCorePercent))
+}
+
+// FormatCPUCoreFromCore 已是核数时的展示
+func FormatCPUCoreFromCore(core float64) string {
+	return fmt.Sprintf("%.2f core", core)
+}
+
+// FormatCPUMilliFromCore 已是核数时的 millicore 展示
+func FormatCPUMilliFromCore(core float64) string {
+	return fmt.Sprintf("%.0fm", core*MilliPerCore)
+}
+
+// FormatCPUHostFromCore 核数换算整机占比，如 "15.6%"
+func FormatCPUHostFromCore(core float64) string {
+	cores := CPUCount()
+	if cores < 1 {
+		cores = 1
+	}
+
+	host := core / float64(cores) * 100
+	if host > 100 {
+		host = 100 // 极端情况（ps 采样抖动）兜底
+	}
+	return fmt.Sprintf("%.1f%%", host)
+}
+
+// FormatCPUDetail 详情展示: 核数 + millicore + 整机占比
+//
+//	"2.50 core (2500m, 整机 15.6% / 16核)"
+func FormatCPUDetail(perCorePercent float64) string {
+	core := CPUCore(perCorePercent)
+	return fmt.Sprintf("%s (%s, 整机 %s / %d核)",
+		FormatCPUCoreFromCore(core),
+		FormatCPUMilliFromCore(core),
+		FormatCPUHostFromCore(core),
+		CPUCount())
+}
+
+// FormatCPUWithHost 列表展示: 核数为主；超过 1 个核时附 millicore
+//
+//	"0.80 core" / "2.50 core (2500m)"
+func FormatCPUWithHost(perCorePercent float64) string {
+	core := CPUCore(perCorePercent)
+	if core <= 1 {
+		return FormatCPUCoreFromCore(core)
+	}
+	return fmt.Sprintf("%s (%s)", FormatCPUCoreFromCore(core), FormatCPUMilliFromCore(core))
+}
+
+// FormatCPUCoreWithHost 列表展示（核数 + 整机占比），用于需要百分比的场景
+func FormatCPUCoreWithHost(perCorePercent float64) string {
+	core := CPUCore(perCorePercent)
+	return fmt.Sprintf("%s (整机 %s)", FormatCPUCoreFromCore(core), FormatCPUHostFromCore(core))
+}
+
+// CPUPercentOfHost 把 ps 的单核口径百分比换算成整机口径（0~100，保底不超过 100）
 func CPUPercentOfHost(perCorePercent float64) float64 {
 	if perCorePercent <= 0 {
 		return 0
@@ -108,7 +204,7 @@ func CPUPercentOfHost(perCorePercent float64) float64 {
 	return host
 }
 
-// FormatCPUPerCore 单核口径展示，如 "150.0%"
+// FormatCPUPerCore 单核口径百分比展示，如 "150.0%"（保留给需要百分比的场景）
 func FormatCPUPerCore(perCorePercent float64) string {
 	if perCorePercent <= 0 {
 		return "0.0%"
@@ -116,28 +212,9 @@ func FormatCPUPerCore(perCorePercent float64) string {
 	return fmt.Sprintf("%.1f%%", perCorePercent)
 }
 
-// FormatCPUHost 整机口径展示，如 "9.4%"
+// FormatCPUHost 整机占比展示，如 "9.4%"
 func FormatCPUHost(perCorePercent float64) string {
 	return fmt.Sprintf("%.1f%%", CPUPercentOfHost(perCorePercent))
-}
-
-// FormatCPUWithHost 同时给出两个口径，如 "150.0% (16核 → 整机 9.4%)"
-// 单核占比未超过 100% 时只返回单核口径，避免信息冗余
-func FormatCPUWithHost(perCorePercent float64) string {
-	perCore := FormatCPUPerCore(perCorePercent)
-	if perCorePercent <= 100 {
-		return perCore
-	}
-	return fmt.Sprintf("%s (%d核 → 整机 %s)", perCore, CPUCount(), FormatCPUHost(perCorePercent))
-}
-
-// FormatCPUHostWithPerCore 整机口径在前，用于主展示（保证不超过 100%）
-func FormatCPUHostWithPerCore(perCorePercent float64) string {
-	host := FormatCPUHost(perCorePercent)
-	if perCorePercent <= 100 {
-		return host
-	}
-	return fmt.Sprintf("%s (单核 %s)", host, FormatCPUPerCore(perCorePercent))
 }
 
 // cpuStatPath 便于测试替换 /proc 路径
