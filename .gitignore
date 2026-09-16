@@ -21,6 +21,12 @@ go.work
 build/
 dist/
 
+# Go build cache (workspace-local)
+.gocache/
+.gomodcache/
+.gotmp/
+.gotelemetry/
+
 # IDE files
 .vscode/
 .idea/

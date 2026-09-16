@@ -54,8 +54,12 @@ func (s *ApplicationService) DiscoverApplications() (models.ApplicationList, err
 		for _, match := range matches {
 			app := models.NewApplication(match)
 
-			// 设置日志文件路径
-			app.LogFile = filepath.Join(config.GetLogsDir(), app.Name+".log")
+			// 设置日志文件路径（当前运行会话的日志，历史会话保留在日志目录）
+			if current := ResolveCurrentLog(app.Name); current != "" {
+				app.LogFile = current
+			} else {
+				app.LogFile = LegacyLogPath(app.Name)
+			}
 
 			// 从配置中加载应用的优先级和延迟
 			if priorityConfig, ok := s.config.Applications[app.Name]; ok {
@@ -138,12 +142,21 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 		return fmt.Errorf("创建日志目录失败: %w", err)
 	}
 
-	// 创建日志文件
-	logFile, err := os.OpenFile(app.LogFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	// 准备本次运行的日志文件（时间戳命名，历史日志不再被覆盖）
+	logPath, err := s.prepareSessionLog(app)
+	if err != nil {
+		return err
+	}
+	app.LogFile = logPath
+
+	flags := os.O_CREATE | os.O_WRONLY
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		flags |= os.O_EXCL
+	}
+	logFile, err := os.OpenFile(logPath, flags, 0644)
 	if err != nil {
 		return fmt.Errorf("创建日志文件失败: %w", err)
 	}
-	defer logFile.Close()
 
 	// 创建命令
 	// 在 Linux/Unix 上使用 setsid 包装命令，使进程完全独立于父进程
@@ -184,8 +197,16 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 
 	// 启动进程
 	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		removeEmptyLogFile(logPath)
 		return fmt.Errorf("启动应用失败: %w", err)
 	}
+
+	// 子进程已继承日志文件描述符，父进程关闭自己的句柄
+	logFile.Close()
+
+	// 维护“当前日志”软链接 <app>.log -> <app>-yyyy-MM-dd-HHmmss.log
+	linkCurrentLog(app.Name, logPath)
 
 	// 保存PID
 	app.PID = cmd.Process.Pid
@@ -207,8 +228,27 @@ func (s *ApplicationService) StartApplication(app *models.Application) error {
 	return nil
 }
 
-// StopApplication 停止应用
+// StopApplication 停止应用，并把本次运行的日志归档留痕
+// 归档文件名: <app>-<启动时间>-停止.log，归档后重建 <app>.log 软链接指向该文件
 func (s *ApplicationService) StopApplication(app *models.Application) error {
+	err := s.forceStopApplication(app)
+	if err != nil {
+		return err
+	}
+
+	// 进程已停止，归档日志（归档失败不影响停止结果）
+	if archived, archiveErr := s.archiveSessionLog(app); archiveErr != nil {
+		logger.Warning("归档日志文件失败: %v", archiveErr)
+	} else if archived != "" {
+		app.LogFile = archived
+		logger.Info("日志已归档: %s", filepath.Base(archived))
+	}
+
+	return nil
+}
+
+// forceStopApplication 强制停止应用进程（不处理日志归档）
+func (s *ApplicationService) forceStopApplication(app *models.Application) error {
 	logger.Info("正在准备强制停止应用: %s", app.Name)
 
 	// 1. 收集所有需要停止的PID
@@ -258,7 +298,95 @@ func (s *ApplicationService) StopApplication(app *models.Application) error {
 	app.RemovePID()
 	app.Status = models.StatusStopped
 	logger.Success("应用 %s 已被强制停止", app.Name)
+
+	// 6. 留出一点时间让进程把最后的日志刷盘
+	time.Sleep(300 * time.Millisecond)
+
 	return nil
+}
+
+// archiveSessionLog 归档应用的当前日志文件为 <app>-<启动时间>-停止.log
+// 返回归档后的日志路径
+func (s *ApplicationService) archiveSessionLog(app *models.Application) (string, error) {
+	logPath := app.LogFile
+	if logPath == "" {
+		logPath = ResolveCurrentLog(app.Name)
+	}
+
+	// 旧命名(<app>.log)且不是软链接时，先归档旧文件
+	if logPath == "" || filepath.Clean(logPath) == filepath.Clean(LegacyLogPath(app.Name)) {
+		archived, err := ArchiveLegacyLog(app.Name)
+		if err != nil {
+			return "", err
+		}
+		if archived != "" {
+			// 归档后重建“当前日志”软链接，logs/status 仍可直接查看
+			linkCurrentLog(app.Name, archived)
+			if logPath == "" {
+				return archived, nil
+			}
+		}
+	}
+
+	if logPath == "" {
+		return "", nil
+	}
+
+	archived, err := archiveLogFile(logPath)
+	if err != nil {
+		return "", err
+	}
+	if archived == "" {
+		return "", nil
+	}
+
+	// 软链接跟随归档后的文件，logs/status 仍能直接看到最后一次运行的日志
+	linkCurrentLog(app.Name, archived)
+	return archived, nil
+}
+
+// prepareSessionLog 为本次启动准备日志文件：
+//  1. 把上次异常退出（例如被 kill -9、断电）遗留的旧命名日志或未归档日志归档
+//  2. 生成新的时间戳日志路径 <app>-yyyy-MM-dd-HHmmss.log
+func (s *ApplicationService) prepareSessionLog(app *models.Application) (string, error) {
+	if err := os.MkdirAll(config.GetLogsDir(), 0755); err != nil {
+		return "", fmt.Errorf("创建日志目录失败: %w", err)
+	}
+
+	// 旧命名日志（真实文件）归档留痕
+	if archived, err := ArchiveLegacyLog(app.Name); err != nil {
+		logger.Warning("归档旧日志文件失败: %v", err)
+	} else if archived != "" {
+		logger.Info("检测到旧日志文件，已归档为: %s", filepath.Base(archived))
+	}
+
+	// 上一次运行没有正常归档（例如被强制杀死），启动前补归档
+	if previous := ResolveCurrentLog(app.Name); previous != "" &&
+		filepath.Clean(previous) != filepath.Clean(LegacyLogPath(app.Name)) {
+		if info, err := os.Stat(previous); err == nil && info.Size() > 0 {
+			if archived, err := archiveLogFile(previous); err != nil {
+				logger.Warning("归档上次运行日志失败: %v", err)
+			} else if archived != "" && filepath.Clean(archived) != filepath.Clean(previous) {
+				logger.Info("上次运行日志已归档为: %s", filepath.Base(archived))
+			}
+		}
+	}
+
+	logPath := NewSessionLogPath(app.Name, time.Now())
+	logger.Info("本次运行日志: %s", filepath.Base(logPath))
+
+	return logPath, nil
+}
+
+// removeEmptyLogFile 删除启动失败时产生的空日志文件（会话日志才清理）
+func removeEmptyLogFile(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() > 0 {
+		return
+	}
+	if sessionLogRegex.MatchString(filepath.Base(path)) {
+		_ = os.Remove(path)
+	}
 }
 
 // getAllRelatedPIDs 获取所有相关的PID（包括PID文件中的和基于目录查找的）

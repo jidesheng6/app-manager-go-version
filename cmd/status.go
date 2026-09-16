@@ -166,7 +166,7 @@ func showAllApplicationsStatus(appService *services.ApplicationService) error {
 func showSystemInfo() {
 	systemInfo := config.GetSystemInfo()
 	
-	logger.Println("\n\n")
+	logger.Printf("\n\n")
 	logger.Info("系统信息:")
 	logger.Printf("主机名: \033[33m%s\033[0m\n", systemInfo["hostname"])
 	logger.Printf("IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
@@ -241,11 +241,8 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 		}
 		
 		// 端口连接状态
-		if len(procInfo.PortConnections) > 0 {
-			logger.Printf("端口连接状态:\n")
-			for _, conn := range procInfo.PortConnections {
-				logger.Printf("  %s\n", conn)
-			}
+		if procInfo.PortConnections != "" {
+			logger.Printf("端口连接状态: %s\n", procInfo.PortConnections)
 		}
 	}
 
@@ -1114,27 +1111,33 @@ func handleLogCommand(input string, apps models.ApplicationList) error {
 	
 	// 获取目标应用
 	app := apps[appIndex-1]
-	
+
+	// 解析当前日志（会话日志优先，兼容旧命名）
+	logPath := services.ResolveCurrentLog(app.Name)
+	if logPath == "" {
+		logPath = app.LogFile
+	}
+
 	// 检查日志文件配置
-	if app.LogFile == "" {
+	if logPath == "" {
 		return fmt.Errorf("应用 %s 没有配置日志文件", app.Name)
 	}
 	
 	// 检查日志文件是否存在
-	if _, err := os.Stat(app.LogFile); os.IsNotExist(err) {
-		return fmt.Errorf("日志文件不存在: %s", app.LogFile)
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		return fmt.Errorf("日志文件不存在: %s", logPath)
 	}
 	
 	// 清屏并显示日志
 	fmt.Print("\033[2J\033[H")
 	logger.Title("查看应用日志")
 	logger.Info("应用名称: %s", app.Name)
-	logger.Info("日志文件: %s", app.LogFile)
+	logger.Info("日志文件: %s", logPath)
 	logger.Info("显示行数: %d", lines)
 	logger.Println("")
 	
 	// 读取日志文件
-	err = readLogTail(app.LogFile, lines)
+	err = readLogTail(logPath, lines)
 	if err != nil {
 		return fmt.Errorf("读取日志失败: %w", err)
 	}

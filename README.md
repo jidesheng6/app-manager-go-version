@@ -18,7 +18,9 @@
 - **更新准备**: 安全的应用更新流程
 
 ### 📋 日志管理
-- **日志查看**: 支持实时跟踪和历史日志查看
+- **日志留痕**: 每次启动按时间戳新建日志，历史日志不再被覆盖
+- **自动归档**: stop/restart 时把当前日志改名为 `应用名-yyyy-MM-dd-HHmmss-停止.log`
+- **日志查看**: 支持实时跟踪、历史运行周期回看
 - **日志轮转**: 自动日志文件轮转和清理
 - **彩色输出**: 根据日志级别自动着色显示
 
@@ -123,7 +125,35 @@ app-manager restart myapp
 | `stop` | 停止应用 | `app-manager stop myapp` |
 | `restart` | 重启应用 | `app-manager restart myapp` |
 | `status` | 查看应用状态（支持交互模式，包含端口连接和IP去重统计） | `app-manager status` |
-| `logs` | 查看应用日志 | `app-manager logs myapp -f` |
+| `logs` | 查看应用日志（当前 / 历史运行周期） | `app-manager logs myapp -f` |
+
+### 日志留痕
+
+日志文件按“运行周期”留痕，任何一次启动的输出都不会被下一次覆盖：
+
+```
+project_backend/logs/
+├── party-auth.log                          # 软链接，指向最近一次运行的日志
+├── party-auth-2025-01-01-101530-停止.log   # 第 1 次运行（启动 10:15:30，已停止归档）
+└── party-auth-2025-01-01-140000.log        # 第 2 次运行（当前正在写入）
+```
+
+- 每次 `start` 新建 `<应用名>-yyyy-MM-dd-HHmmss.log`（不会清空旧日志）
+- `stop` / `restart` 时把当前日志改名为 `<应用名>-yyyy-MM-dd-HHmmss-停止.log`
+- 程序被 `kill -9`、断电等异常情况下，下次 `start` 会自动补归档上一次的日志
+- `<应用名>.log` 是软链接（Windows 不支持软链接时自动跳过），`logs` / `status` 始终指向可用日志
+- 旧版本遗留的 `<应用名>.log` 真实文件会在下次启动时自动归档迁移
+
+```bash
+# 查看当前日志并实时跟踪
+app-manager logs party-auth -f
+
+# 列出该应用所有运行周期的日志
+app-manager logs party-auth --history
+
+# 查看倒数第 2 次运行的日志（序号见 --history 输出）
+app-manager logs party-auth --tail 2 -n 500
+```
 
 ### 高级命令
 
@@ -145,6 +175,8 @@ app-manager restart myapp
 | `--force, -f` | 强制执行操作 |
 | `--follow, -f` | 实时跟踪（日志命令） |
 | `--lines, -n` | 指定行数（日志命令） |
+| `--history` | 列出该应用所有运行周期的日志（日志命令） |
+| `--tail` | 查看指定序号的运行周期日志，1 为最新（日志命令） |
 
 ## 配置文件
 
