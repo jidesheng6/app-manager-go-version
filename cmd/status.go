@@ -203,10 +203,6 @@ func showSystemInfo() {
 	logger.Printf("IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
 	logger.Printf("CPU核心: \033[33m%s\033[0m \033[90m(%s)\033[0m\n", systemInfo["cpu_count"], models.CPUUnitHint())
 	logger.Printf("版本: \033[35m%s\033[0m\n", version.BuildLine(Version))
-	logger.Printf("代码版本: %s\n", version.RepoLine(version.Live(config.GetProjectRoot())))
-	if hint := version.DriftHint(version.Embedded(), version.Live(config.GetProjectRoot())); hint != "" {
-		logger.Printf("\033[33m提示: %s\033[0m\n", hint)
-	}
 	logger.Printf("项目目录: \033[32m%s\033[0m\n", systemInfo["project_root"])
 	logger.Printf("Nacos地址: \033[35m%s\033[0m\n", systemInfo["nacos_server"])
 	logger.Printf("Nacos命名空间: \033[34m%s\033[0m\n", systemInfo["nacos_namespace"])

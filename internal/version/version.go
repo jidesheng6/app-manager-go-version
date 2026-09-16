@@ -162,6 +162,9 @@ func BuildTimeOrNow() string {
 
 // BuildLine 一行描述二进制自身的来源：v1.0.1 (feat/log-retention@10980d9, 构建于 ...)
 //
+// 只使用**构建期注入**的信息，不做运行期 git 查询，
+// 因此部署到没有 .git 的服务器上也能正常显示提交号。
+//
 // versionText 传入 main.Version（避免本包依赖 cmd 包）
 func BuildLine(versionText string) string {
 	embedded := Embedded()

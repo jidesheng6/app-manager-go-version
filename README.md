@@ -69,19 +69,22 @@ sudo mv app-manager /usr/local/bin/
 ```
 
 **为什么要用脚本编译**：脚本会把 `git rev-parse` 得到的提交号、分支、是否有未提交改动注入二进制。
-部署到服务器后，`app-manager status` / `app-manager version` 就能直接显示这份二进制来自哪个提交，
+部署到服务器后，`app-manager status` 的"版本"行就能直接显示这份二进制来自哪个提交，
 再也不用靠"这个包是不是最新的"来猜。
 
 ```bash
+# status 的系统信息段（部署环境只显示构建期注入的信息，不依赖 .git）
+$ app-manager status
+版本: 1.0.2 (feat/log-retention@10980d9, 构建于 2026-09-16T16:36:40)
+
+# version 命令额外展示当前目录的 git 状态与版本漂移（在没有 .git 的服务器上显示提示文本）
 $ app-manager version
-app-manager version v1.0.2
+app-manager version 1.0.2
 Build:   10980d9 (feat/log-retention@10980d9, 工作区有未提交改动, 构建于 2026-09-16T16:36:40)
 代码目录: /opt/party/project_backend
 当前仓库: feat/log-retention@10980d9 [干净] 提交于 2026-09-16 16:33:08
 注意: 二进制由 10980d9 构建，当前目录是 3f2a1b0 —— 建议重新编译后再操作   # 版本漂移时才出现
 ```
-
-`app-manager status` 的系统信息段同样会打印这两行（不注入 git 信息时会提示如何构建）。
 
 ### 下载预编译版本
 
