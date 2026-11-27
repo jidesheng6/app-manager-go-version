@@ -57,7 +57,7 @@ git clone <repository-url>
 cd app-manager-go-v1
 
 # 编译（推荐：脚本会把当前提交号/分支注入二进制）
-pwsh ./build-linux.ps1                       # 产出 dist/app-manager-linux-{amd64,arm64} + BUILD-INFO.txt
+pwsh ./build-linux.ps1                       # 产出 dist/app-manager-linux-{amd64,aarch64,mips64le,mips64} + BUILD-INFO.txt + SW64.txt
 pwsh ./build-windows.ps1                     # 产出 dist/app-manager.exe
 pwsh ./build-linux.ps1 -Version v1.0.2       # 手动指定版本号
 
@@ -85,6 +85,23 @@ Build:   10980d9 (feat/log-retention@10980d9, 工作区有未提交改动, 构�
 当前仓库: feat/log-retention@10980d9 [干净] 提交于 2026-09-16 16:33:08
 注意: 二进制由 10980d9 构建，当前目录是 3f2a1b0 —— 建议重新编译后再操作   # 版本漂移时才出现
 ```
+
+### 申威 SW64
+
+官方 Go（`golang.org`）**没有** `GOARCH=sw64`，GitHub Actions / `build-linux.ps1` 只能产出 amd64、aarch64、mips64le、mips64。  
+申威二进制需在申威机器上用厂商定制 Go 工具链本地编译：
+
+```bash
+export CGO_ENABLED=0
+go build -o app-manager-linux-sw64 .
+```
+
+Release 产物中的 `SW64.txt` 也写了同样说明。
+
+### GitHub Actions
+
+- **CI**：`push` / `PR` 时在 Ubuntu 上跑 `go test ./...`
+- **Release**：打 `v*` 标签或手动 `workflow_dispatch` 时交叉编译上述四架构并上传 Artifact；`v*` 标签会创建 GitHub Release
 
 ### 下载预编译版本
 

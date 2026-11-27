@@ -42,8 +42,11 @@ const (
 	// legacyStoppedSuffix 旧版归档标记 <app>-<启动时间>-停止.log
 	legacyStoppedSuffix = "-停止"
 
-	// logExt 会话日志扩展名
+	// logExt 会话日志扩展名（归档保持明文，便于崩溃排障直接阅读）
 	logExt = ".log"
+	// currentPointerSuffix 软链接不可用时的指针文件后缀（Windows 常见）
+	// 内容为一行：会话日志文件名（basename）
+	currentPointerSuffix = ".log.current"
 )
 
 var (
@@ -89,10 +92,11 @@ func NewSessionLogPath(appName string, start time.Time) string {
 	return filepath.Join(config.GetLogsDir(), appName+"-"+start.Format(SessionTimeLayout)+startMark+logExt)
 }
 
-// hasStoppedMark 判断文件名（含 .log）是否带归档标记（新版 -<停止时间>停止.log 或旧版 -停止.log）
+// hasStoppedMark 判断文件名是否带归档标记
 func hasStoppedMark(fileName string) bool {
-	base := strings.TrimSuffix(filepath.Base(fileName), logExt)
-	return stopTailRegex.MatchString(fileName) || strings.HasSuffix(base, legacyStoppedSuffix)
+	baseName := filepath.Base(fileName)
+	base := strings.TrimSuffix(baseName, logExt)
+	return stopTailRegex.MatchString(baseName) || strings.HasSuffix(base, legacyStoppedSuffix)
 }
 
 // sessionAppName 从会话日志文件名中还原应用名称
@@ -376,8 +380,55 @@ func archiveLogFile(path string) (string, error) {
 
 	// 链接是绝对路径时直接删；相对路径时按链接文本判断是否指向刚被改名的文件
 	removeLinkTo(appNameOfSessionPath(path), filepath.Base(path))
+	clearCurrentPointer(appNameOfSessionPath(path))
 
 	return target, nil
+}
+
+// logsDirReady 配置已初始化时才读写指针文件（单测里可能未 Init）
+func logsDirReady() bool {
+	return config.AppConfig != nil
+}
+
+// currentPointerPath 返回软链接失败时使用的指针文件路径
+func currentPointerPath(appName string) string {
+	return filepath.Join(config.GetLogsDir(), appName+currentPointerSuffix)
+}
+
+// writeCurrentPointer 写入当前会话指针（一行 basename）
+func writeCurrentPointer(appName, target string) {
+	if appName == "" || target == "" || !logsDirReady() {
+		return
+	}
+	_ = os.WriteFile(currentPointerPath(appName), []byte(filepath.Base(target)+"\n"), 0644)
+}
+
+// readCurrentPointer 读取指针指向的真实日志路径；无效时返回空
+func readCurrentPointer(appName string) string {
+	if appName == "" || !logsDirReady() {
+		return ""
+	}
+	data, err := os.ReadFile(currentPointerPath(appName))
+	if err != nil {
+		return ""
+	}
+	name := strings.TrimSpace(string(data))
+	if name == "" || strings.Contains(name, string(os.PathSeparator)) || strings.Contains(name, "/") {
+		return ""
+	}
+	full := filepath.Join(config.GetLogsDir(), name)
+	if _, err := os.Stat(full); err != nil {
+		return ""
+	}
+	return full
+}
+
+// clearCurrentPointer 删除指针文件
+func clearCurrentPointer(appName string) {
+	if appName == "" || !logsDirReady() {
+		return
+	}
+	_ = os.Remove(currentPointerPath(appName))
 }
 
 // appNameOfSessionPath 从会话日志路径还原应用名称
@@ -387,7 +438,7 @@ func appNameOfSessionPath(path string) string {
 
 // removeLinkTo 删除指向 oldName 的 <app>.log 软链接（归档改名后调用，避免链接悬空）
 func removeLinkTo(appName, oldName string) {
-	if appName == "" {
+	if appName == "" || !logsDirReady() {
 		return
 	}
 
@@ -439,27 +490,45 @@ func ArchiveLegacyLog(appName string) (string, error) {
 
 // ResolveCurrentLog 解析应用“当前”使用的日志文件：
 //  1. <app>.log（运行期软链接，或旧版遗留的真实文件）
-//  2. 最新一次未归档的会话日志
-//  3. 最近一次归档日志（应用已停止时，让它指向最后一次运行的输出）
+//  2. <app>.log.current 指针文件（软链接不可用时的回退，如 Windows）
+//  3. 最新一次未归档的会话日志
+//  4. 最近一次归档日志（应用已停止时，让它指向最后一次运行的输出）
 //
 // 找不到时返回空字符串
 func ResolveCurrentLog(appName string) string {
 	linkPath := CurrentLogLinkPath(appName)
 
-	if info, err := os.Lstat(linkPath); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			if target, err := os.Stat(linkPath); err == nil && !target.IsDir() {
-				return linkPath
+	// 1) 有效软链接（且未指向已归档文件）→ 返回目标真实路径
+	if info, err := os.Lstat(linkPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if _, err := os.Stat(linkPath); err == nil {
+			if real, err := os.Readlink(linkPath); err == nil {
+				if hasStoppedMark(filepath.Base(real)) {
+					_ = os.Remove(linkPath) // 过期链接
+				} else if filepath.IsAbs(real) {
+					return real
+				} else {
+					return filepath.Join(filepath.Dir(linkPath), real)
+				}
 			}
-		} else if !info.IsDir() {
-			return linkPath
 		}
 	}
 
+	// 2) 指针文件（软链接不可用时的回退）
+	if ptr := readCurrentPointer(appName); ptr != "" {
+		return ptr
+	}
+
+	// 3) 最新未归档会话（比遗留的普通 <app>.log 更可信）
 	if newest := newestActiveSessionLog(appName); newest != nil {
 		return newest.Path
 	}
 
+	// 4) 遗留的真实 <app>.log（旧版固定路径）
+	if info, err := os.Lstat(linkPath); err == nil && info.Mode()&os.ModeSymlink == 0 && !info.IsDir() {
+		return linkPath
+	}
+
+	// 5) 最近一次归档
 	if newest := newestSessionLog(appName); newest != nil {
 		return newest.Path
 	}
@@ -468,7 +537,8 @@ func ResolveCurrentLog(appName string) string {
 }
 
 // linkCurrentLog 建立运行期软链接 <app>.log -> 本次会话日志
-// 拒绝指向归档文件：软链接只在应用运行期间有意义，停止后由 removeCurrentLogLink 清理
+// 拒绝指向归档文件：软链接只在应用运行期间有意义，停止后由 removeCurrentLogLink 清理。
+// 软链接失败时写入 <app>.log.current 指针，保证 Windows 等环境仍能解析“当前日志”。
 func linkCurrentLog(appName, target string) {
 	if target == "" || hasStoppedMark(filepath.Base(target)) {
 		return
@@ -480,22 +550,26 @@ func linkCurrentLog(appName, target string) {
 	}
 
 	if info, err := os.Lstat(linkPath); err == nil && info.Mode()&os.ModeSymlink == 0 {
-		// 旧命名真实文件仍在，不能覆盖
+		// 旧命名真实文件仍在，不能覆盖；仍写指针以便 Resolve 能找到新会话
+		writeCurrentPointer(appName, target)
 		return
 	}
 
 	_ = os.Remove(linkPath)
 	if err := os.Symlink(filepath.Base(target), linkPath); err != nil {
-		return // Windows 无权限等情况，忽略
+		writeCurrentPointer(appName, target)
+		return
 	}
+	clearCurrentPointer(appName) // 软链接成功则不需要指针
 }
 
-// removeCurrentLogLink 删除旧的“当前日志”软链接
+// removeCurrentLogLink 删除旧的“当前日志”软链接与指针文件
 func removeCurrentLogLink(appName string) {
 	linkPath := CurrentLogLinkPath(appName)
 	if info, err := os.Lstat(linkPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		_ = os.Remove(linkPath)
 	}
+	clearCurrentPointer(appName)
 }
 
 // ListLogSessions 列出某应用的全部日志会话（新的在前）
@@ -511,8 +585,13 @@ func ListLogSessions(appName string) []*LogSession {
 		if entry.IsDir() {
 			continue
 		}
+		name := entry.Name()
+		// 跳过指针文件与软链接探测残留
+		if strings.HasSuffix(name, currentPointerSuffix) {
+			continue
+		}
 
-		session, zero := parseSessionName(entry.Name())
+		session, zero := parseSessionName(name)
 		if zero || session.StartTime.IsZero() || !sessionIsForApp(session, appName) {
 			continue
 		}

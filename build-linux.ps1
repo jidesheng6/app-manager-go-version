@@ -121,43 +121,60 @@ $LdFlags = @(
     $_
 }
 
-$Amd64Out = Join-Path $OutputDir "app-manager-linux-amd64"
-$Arm64Out = Join-Path $OutputDir "app-manager-linux-arm64"
-$InfoOut  = Join-Path $OutputDir "BUILD-INFO.txt"
+# name => GOARCH（产物名用 aarch64 便于和运维习惯对齐）
+$Targets = @(
+    @{ Name = "amd64";    Arch = "amd64" },
+    @{ Name = "aarch64";  Arch = "arm64" },
+    @{ Name = "mips64le"; Arch = "mips64le" },
+    @{ Name = "mips64";   Arch = "mips64" }
+)
 
-Write-Host "Building for linux/amd64..." -ForegroundColor Yellow
-$env:GOARCH = "amd64"
-go build -ldflags $LdFlags -o $Amd64Out .
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] Linux amd64 build failed" -ForegroundColor Red
-    exit 1
+$built = @()
+foreach ($t in $Targets) {
+    $out = Join-Path $OutputDir ("app-manager-linux-" + $t.Name)
+    Write-Host ("Building for linux/{0} -> {1}..." -f $t.Arch, $out) -ForegroundColor Yellow
+    $env:GOARCH = $t.Arch
+    go build -ldflags $LdFlags -o $out .
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ("[ERROR] Linux {0} build failed" -f $t.Arch) -ForegroundColor Red
+        exit 1
+    }
+    Write-Host ("[OK] Linux {0}" -f $t.Name) -ForegroundColor Green
+    $built += $out
 }
-Write-Host "[OK] Linux amd64 build successful" -ForegroundColor Green
 
-Write-Host "Building for linux/arm64..." -ForegroundColor Yellow
-$env:GOARCH = "arm64"
-go build -ldflags $LdFlags -o $Arm64Out .
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] Linux arm64 build failed" -ForegroundColor Red
-    exit 1
-}
-Write-Host "[OK] Linux arm64 build successful" -ForegroundColor Green
-
+$InfoOut = Join-Path $OutputDir "BUILD-INFO.txt"
+$Sw64Out = Join-Path $OutputDir "SW64.txt"
 $buildInfo = @(
     "version=$Version",
     "git_commit=$GitCommit",
     "git_branch=$GitBranch",
     "git_describe=$GitDescribe",
     "git_dirty=$GitDirty",
-    "build_time=$BuildTime"
+    "build_time=$BuildTime",
+    "arches=amd64,aarch64,mips64le,mips64",
+    "sw64=unsupported_by_official_go_use_shenwei_toolchain"
 ) -join "`n"
 [System.IO.File]::WriteAllText($InfoOut, $buildInfo, (New-Object System.Text.UTF8Encoding($false)))
+
+$sw64Note = @"
+SW64 / 申威
+===========
+官方 golang.org 工具链不提供 GOARCH=sw64，本脚本无法交叉编译申威二进制。
+请在申威机器上使用厂商 Go 工具链本地编译：
+
+  export CGO_ENABLED=0
+  go build -o app-manager-linux-sw64 .
+
+详见 README「申威 SW64」。
+"@
+[System.IO.File]::WriteAllText($Sw64Out, $sw64Note, (New-Object System.Text.UTF8Encoding($false)))
 
 Write-Host ""
 Write-Host "All Linux builds completed successfully!" -ForegroundColor Green
 Write-Host "Output files:"
-Write-Host "  - $Amd64Out"
-Write-Host "  - $Arm64Out"
+foreach ($f in $built) { Write-Host "  - $f" }
 Write-Host "  - $InfoOut"
+Write-Host "  - $Sw64Out"
 Write-Host ""
 Write-Host "After deploy, run 'app-manager status' or 'app-manager version' to see this commit." -ForegroundColor Cyan

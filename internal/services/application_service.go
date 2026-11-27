@@ -405,6 +405,9 @@ func (s *ApplicationService) prepareSessionLog(app *models.Application) (string,
 		logger.Info("已清理 %d 份超出保留份数的历史日志（保留 %d 份）", removed, config.KeepLogCount())
 	}
 
+	// 立刻纠正 <app>.log（含指向已归档的脏链接），文件本体由 StartApplication 再 OpenFile
+	linkCurrentLog(app.Name, logPath)
+
 	return logPath, nil
 }
 

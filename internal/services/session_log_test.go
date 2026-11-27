@@ -118,7 +118,7 @@ func TestLegacySessionNamingSupported(t *testing.T) {
 	}
 }
 
-// TestArchiveLogFileFlow 归档真实文件、幂等、冲突处理
+// TestArchiveLogFileFlow 归档真实文件、幂等、冲突处理（明文 .log，不 gzip）
 func TestArchiveLogFileFlow(t *testing.T) {
 	dir := t.TempDir()
 
@@ -136,6 +136,9 @@ func TestArchiveLogFileFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("归档失败: %v", err)
 	}
+	if !strings.HasSuffix(archived, ".log") || strings.HasSuffix(archived, ".log.gz") {
+		t.Fatalf("归档应保持明文 .log，实际: %s", archived)
+	}
 
 	session, zero := parseSessionName(filepath.Base(archived))
 	if zero || session.AppName != "party-auth" || !session.Stopped {
@@ -151,7 +154,7 @@ func TestArchiveLogFileFlow(t *testing.T) {
 		t.Fatalf("原文件应已被改名: %s", path)
 	}
 	if data, err := os.ReadFile(archived); err != nil || string(data) != "hello log\n" {
-		t.Fatalf("归档内容丢失: %v", err)
+		t.Fatalf("归档内容丢失: %v data=%q", err, data)
 	}
 
 	// 二次归档 -> 原样返回（幂等）
