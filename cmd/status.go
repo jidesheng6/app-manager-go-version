@@ -5,6 +5,7 @@ import (
 	"app-manager-go-v1/internal/logger"
 	"app-manager-go-v1/internal/models"
 	"app-manager-go-v1/internal/services"
+	"app-manager-go-v1/internal/version"
 	"bufio"
 	"fmt"
 	"io"
@@ -24,7 +25,25 @@ import (
 var (
 	statusDetail bool
 	statusJSON   bool
+	debugLogs    bool
 )
+
+// cpuUnit 当前 CPU 展示单位（读配置，默认 core）
+func cpuUnit() models.CPUUnit {
+	return models.ParseCPUUnit(config.GetCPUUnit())
+}
+
+// cpuUnitLabel 表头里的单位标签
+func cpuUnitLabel() string {
+	switch cpuUnit() {
+	case models.CPUUnitMilli:
+		return "m"
+	case models.CPUUnitPercent:
+		return "%"
+	default:
+		return "核"
+	}
+}
 
 // statusCmd 状态命令
 var statusCmd = &cobra.Command{
@@ -48,12 +67,23 @@ var statusCmd = &cobra.Command{
   app-manager status                  # 查看所有应用状态
   app-manager status myapp            # 查看指定应用状态
   app-manager status --detail         # 查看详细状态信息
-  app-manager status --json           # 以JSON格式输出`,
+  app-manager status --json           # 以JSON格式输出
+  app-manager status --debug-logs     # 打印日志目录诊断信息（软链接/归档状态）`,
 	Args: cobra.MaximumNArgs(1),
 	PreRun: func(cmd *cobra.Command, args []string) {
 		handleError(checkProjectInit(), 1)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
+		// 日志目录诊断（用于排查留痕/软链接问题，只读不修改）
+		if debugLogs {
+			appName := ""
+			if len(args) > 0 {
+				appName = args[0]
+			}
+			handleError(services.PrintLogDiagnostics(appName), 1)
+			return
+		}
+
 		appService := services.NewApplicationService()
 
 		if len(args) > 0 {
@@ -74,6 +104,7 @@ var statusCmd = &cobra.Command{
 func init() {
 	statusCmd.Flags().BoolVarP(&statusDetail, "detail", "d", false, "显示详细状态信息")
 	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "以JSON格式输出")
+	statusCmd.Flags().BoolVar(&debugLogs, "debug-logs", false, "打印日志目录诊断信息（软链接、归档状态）")
 }
 
 // showSingleApplicationStatus 显示单个应用状态
@@ -166,10 +197,12 @@ func showAllApplicationsStatus(appService *services.ApplicationService) error {
 func showSystemInfo() {
 	systemInfo := config.GetSystemInfo()
 	
-	logger.Println("\n\n")
+	logger.Printf("\n\n")
 	logger.Info("系统信息:")
 	logger.Printf("主机名: \033[33m%s\033[0m\n", systemInfo["hostname"])
 	logger.Printf("IP地址: \033[36m%s\033[0m\n", systemInfo["ip"])
+	logger.Printf("CPU核心: \033[33m%s\033[0m \033[90m(%s)\033[0m\n", systemInfo["cpu_count"], models.CPUUnitHint())
+	logger.Printf("版本: \033[35m%s\033[0m\n", version.BuildLine(Version))
 	logger.Printf("项目目录: \033[32m%s\033[0m\n", systemInfo["project_root"])
 	logger.Printf("Nacos地址: \033[35m%s\033[0m\n", systemInfo["nacos_server"])
 	logger.Printf("Nacos命名空间: \033[34m%s\033[0m\n", systemInfo["nacos_namespace"])
@@ -195,7 +228,11 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 	}
 
 	if status.CPUUsage != "" {
-		logger.Printf("CPU使用率: %s\n", status.CPUUsage)
+		// 详情：按配置单位展示，并给出换算过程
+		logger.Printf("CPU使用量: \033[33m%s\033[0m\n",
+			models.FormatCPUDetailByUnit(app.GetProcessInfo().CPUPercent, cpuUnit()))
+	} else {
+		logger.Printf("CPU使用量: \033[33m0.00 core\033[0m\n")
 	}
 
 	if status.MemoryUsage != "" {
@@ -241,11 +278,8 @@ func showDetailedStatus(status *models.ApplicationStatus, app *models.Applicatio
 		}
 		
 		// 端口连接状态
-		if len(procInfo.PortConnections) > 0 {
-			logger.Printf("端口连接状态:\n")
-			for _, conn := range procInfo.PortConnections {
-				logger.Printf("  %s\n", conn)
-			}
+		if procInfo.PortConnections != "" {
+			logger.Printf("端口连接状态: %s\n", procInfo.PortConnections)
 		}
 	}
 
@@ -276,7 +310,7 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	logger.Info("[调试] 步骤1/2: 批量获取进程信息完成。")
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU", "内存", "使用内存", "磁盘读", "磁盘写", "网络收", "网络发", "端口"})
+	table.SetHeader([]string{"序号", "应用名称", "状态", "PID", "运行时长", "CPU(" + cpuUnitLabel() + ")", "内存", "使用内存", "磁盘读", "磁盘写", "网络收", "网络发", "端口"})
 	table.SetBorder(true)
 	table.SetRowLine(false) // 减少行线以降低表格高度
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
@@ -311,11 +345,16 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	for i, app := range apps {
 		status := appService.GetApplicationStatus(app) // 从service获取状态
 
+		// 进程信息（CPU/内存/IO/网络都从这里取）
+		procInfo := app.GetProcessInfo()
+		if procInfo == nil {
+			procInfo = &models.ProcessInfo{}
+		}
+
 		// 统计状态
 		if status.Status == models.StatusRunning {
 			runningCount++
-			// 累加资源使用情况
-			procInfo := app.GetProcessInfo()
+			// 累加资源使用情况（CPU 用单核口径累加，最后统一换算整机口径）
 			totalCPU += procInfo.CPUPercent
 			totalMem += procInfo.MemoryPercent
 			totalMemSize += procInfo.MemoryKB
@@ -339,9 +378,10 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			uptimeStr = status.Uptime
 		}
 
-		cpuStr := "0%"
-		if status.CPUUsage != "" {
-			cpuStr = status.CPUUsage
+		// CPU：默认以核为单位（1.00 core = 1 个核），单位可在 .ini 配置
+		cpuStr := "0.00"
+		if procInfo.CPUPercent > 0 {
+			cpuStr = models.FormatCPUByUnit(procInfo.CPUPercent, cpuUnit())
 		}
 
 		memoryStr := "0%"
@@ -354,9 +394,6 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 			memorySizeStr = status.MemorySize
 		}
 
-		// 获取进程信息以显示监控数据
-		procInfo := app.GetProcessInfo()
-		
 		// 磁盘 I/O 信息
 		diskReadStr := "--"
 		diskWriteStr := "--"
@@ -411,13 +448,19 @@ func showTableStatus(appService *services.ApplicationService, apps models.Applic
 	// 添加合计行
 	totalCount := len(apps)
 
-	avgCPUStr := "0.0%"
+	avgCPUStr := "0.00"
 	avgMemStr := "0.0%"
 	if runningCount > 0 {
-		avgCPU := totalCPU / float64(runningCount)
+		// CPU 用核数汇总：绝对量可跨应用相加，与机器核数无关
+		totalCore := models.CPUCore(totalCPU)
+		avgCore := totalCore / float64(runningCount)
 		avgMem := totalMem / float64(runningCount)
 
-		avgCPUStr = fmt.Sprintf("Avg %.1f%%", avgCPU)
+		// 合计/均值按配置单位展示，并标注机器总算力（核数）
+		avgCPUStr = fmt.Sprintf("Σ %s (Avg %s / %d核)",
+			models.FormatCPUCoreTotal(totalCore, cpuUnit()),
+			models.FormatCPUCoreTotal(avgCore, cpuUnit()),
+			models.CPUCount())
 		avgMemStr = fmt.Sprintf("Avg %.1f%%", avgMem)
 	}
 
@@ -1114,27 +1157,33 @@ func handleLogCommand(input string, apps models.ApplicationList) error {
 	
 	// 获取目标应用
 	app := apps[appIndex-1]
-	
+
+	// 解析当前日志（会话日志优先，兼容旧命名）
+	logPath := services.ResolveCurrentLog(app.Name)
+	if logPath == "" {
+		logPath = app.LogFile
+	}
+
 	// 检查日志文件配置
-	if app.LogFile == "" {
+	if logPath == "" {
 		return fmt.Errorf("应用 %s 没有配置日志文件", app.Name)
 	}
 	
 	// 检查日志文件是否存在
-	if _, err := os.Stat(app.LogFile); os.IsNotExist(err) {
-		return fmt.Errorf("日志文件不存在: %s", app.LogFile)
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		return fmt.Errorf("日志文件不存在: %s", logPath)
 	}
 	
 	// 清屏并显示日志
 	fmt.Print("\033[2J\033[H")
 	logger.Title("查看应用日志")
 	logger.Info("应用名称: %s", app.Name)
-	logger.Info("日志文件: %s", app.LogFile)
+	logger.Info("日志文件: %s", logPath)
 	logger.Info("显示行数: %d", lines)
 	logger.Println("")
 	
 	// 读取日志文件
-	err = readLogTail(app.LogFile, lines)
+	err = readLogTail(logPath, lines)
 	if err != nil {
 		return fmt.Errorf("读取日志失败: %w", err)
 	}

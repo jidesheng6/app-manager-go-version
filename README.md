@@ -18,7 +18,9 @@
 - **更新准备**: 安全的应用更新流程
 
 ### 📋 日志管理
-- **日志查看**: 支持实时跟踪和历史日志查看
+- **日志留痕**: 每次启动按时间戳新建日志，历史日志不再被覆盖
+- **自动归档**: stop/restart 时把当前日志改名为 `应用名-yyyy-MM-dd-HHmmss-停止.log`
+- **日志查看**: 支持实时跟踪、历史运行周期回看
 - **日志轮转**: 自动日志文件轮转和清理
 - **彩色输出**: 根据日志级别自动着色显示
 
@@ -26,6 +28,14 @@
 - **端口连接统计**: 实时监控应用端口的连接数和状态
 - **IP去重统计**: 自动统计连接到各端口的唯一IP地址数量
 - **连接详情**: 显示端口监听状态、连接数、唯一IP数等详细信息
+
+### 📈 资源监控
+- **CPU 默认以核为单位**: 直接显示 `1.25 core`（1.00 core = 1 个核跑满），超过 1 核时附 millicore
+  精确值 `2.50 core (2500m)`。`ps` 的 pcpu 是"占单核百分比"，多核上会超过 100%，早期版本
+  直接截断到 100%；现在换算成核数，多核高负载不再失真，且可跨应用直接相加（合计行 `Σ 13.88 core`）
+- **单位可配置**: `application.cpu_unit = core`（默认）| `m`（1250m，k8s 口径）| `percent`（整机占比）
+- **容器感知**: 核数优先取 cgroup 限额（v1/v2），容器里不会用宿主机核数错误换算整机占比
+- **端口连接统计**: 实时监控应用端口的连接数和状态
 
 ### 💾 备份功能
 - **项目备份**: 完整的项目文件备份
@@ -46,12 +56,52 @@
 git clone <repository-url>
 cd app-manager-go-v1
 
-# 编译
+# 编译（推荐：脚本会把当前提交号/分支注入二进制）
+pwsh ./build-linux.ps1                       # 产出 dist/app-manager-linux-{amd64,aarch64,mips64le,mips64} + BUILD-INFO.txt + SW64.txt
+pwsh ./build-windows.ps1                     # 产出 dist/app-manager.exe
+pwsh ./build-linux.ps1 -Version v1.0.2       # 手动指定版本号
+
+# 或者手动编译（不带 git 信息也能跑，只是 status/version 里看不到提交号）
 go build -o app-manager main.go
 
 # 安装到系统路径（可选）
 sudo mv app-manager /usr/local/bin/
 ```
+
+**为什么要用脚本编译**：脚本会把 `git rev-parse` 得到的提交号、分支、是否有未提交改动注入二进制。
+部署到服务器后，`app-manager status` 的"版本"行就能直接显示这份二进制来自哪个提交，
+再也不用靠"这个包是不是最新的"来猜。
+
+```bash
+# status 的系统信息段（部署环境只显示构建期注入的信息，不依赖 .git）
+$ app-manager status
+版本: 1.0.2 (feat/log-retention@10980d9, 构建于 2026-09-16T16:36:40)
+
+# version 命令额外展示当前目录的 git 状态与版本漂移（在没有 .git 的服务器上显示提示文本）
+$ app-manager version
+app-manager version 1.0.2
+Build:   10980d9 (feat/log-retention@10980d9, 工作区有未提交改动, 构建于 2026-09-16T16:36:40)
+代码目录: /opt/party/project_backend
+当前仓库: feat/log-retention@10980d9 [干净] 提交于 2026-09-16 16:33:08
+注意: 二进制由 10980d9 构建，当前目录是 3f2a1b0 —— 建议重新编译后再操作   # 版本漂移时才出现
+```
+
+### 申威 SW64
+
+官方 Go（`golang.org`）**没有** `GOARCH=sw64`，GitHub Actions / `build-linux.ps1` 只能产出 amd64、aarch64、mips64le、mips64。  
+申威二进制需在申威机器上用厂商定制 Go 工具链本地编译：
+
+```bash
+export CGO_ENABLED=0
+go build -o app-manager-linux-sw64 .
+```
+
+Release 产物中的 `SW64.txt` 也写了同样说明。
+
+### GitHub Actions
+
+- **CI**：`push` / `PR` 时在 Ubuntu 上跑 `go test ./...`
+- **Release**：打 `v*` 标签或手动 `workflow_dispatch` 时交叉编译上述四架构并上传 Artifact；`v*` 标签会创建 GitHub Release
 
 ### 下载预编译版本
 
@@ -123,7 +173,51 @@ app-manager restart myapp
 | `stop` | 停止应用 | `app-manager stop myapp` |
 | `restart` | 重启应用 | `app-manager restart myapp` |
 | `status` | 查看应用状态（支持交互模式，包含端口连接和IP去重统计） | `app-manager status` |
-| `logs` | 查看应用日志 | `app-manager logs myapp -f` |
+| `logs` | 查看应用日志（当前 / 历史运行周期） | `app-manager logs myapp -f` |
+
+### 日志留痕
+
+日志文件按“运行周期”留痕，文件名同时记录**启动时刻**和**停止时刻**，任何一次启动的输出都不会被覆盖。
+目录里**只有普通文件**，软链接只在应用运行期间存在，停止即清理：
+
+```
+运行中：
+project_backend/logs/
+├── party-auth.log                                                  # 软链接 → 本次会话日志（仅运行期存在）
+├── party-auth-2026-09-16-161016启动-2026-09-16-161142停止.log      # 第 1 次运行（已归档）
+└── party-auth-2026-09-16-161117启动.log                           # 第 2 次运行（正在写入）
+
+已停止：
+project_backend/logs/
+├── party-auth-2026-09-16-161016启动-2026-09-16-161142停止.log      # 第 1 次运行
+└── party-auth-2026-09-16-161117启动-2026-09-16-161230停止.log      # 第 2 次运行（链接已清理）
+```
+
+- 每次 `start` 新建 `<应用名>-<启动时间>启动.log`（不会清空旧日志）
+- `stop` / `restart` 时改名为 `<应用名>-<启动时间>启动-<停止时间>停止.log`，并删除 `<应用名>.log` 链接
+- 停止时间取内容最后写入时刻，因此文件名能直接看出这次运行活了多久；同秒停止时顺延 1 秒避免歧义
+- 归档永远作用于**真实文件**，不会对软链接做 `rename`（否则会把链接变成归档文件、滚出 `-停止(2).log` 这类链子）
+- 同一次停止被重复触发（如 daemon 优雅退出 + `stop` 命令）时幂等：已归档文件不会被二次改名
+- 程序被 `kill -9`、断电等异常情况下，下次 `start` 会自动补归档上一次的日志
+- 旧命名（`<应用名>-<启动时间>.log` / `…-停止.log`）与旧版固定命名 `<应用名>.log` 都会被自动识别、归档迁移
+- `<应用名>.log` 链接缺失时（应用已停止），`logs` / `status` 自动回退到最近一次运行的日志
+- **保留份数**：每个应用最多保留最近 7 份归档日志（`application.log_keep_count`，见下方配置说明），
+  超出后自动删除最旧的；正在写入的那份不计数、也不会被删
+
+```bash
+# 查看当前日志并实时跟踪
+app-manager logs party-auth -f
+
+# 列出该应用所有运行周期的日志
+app-manager logs party-auth --history
+
+# 查看倒数第 2 次运行的日志（序号见 --history 输出）
+app-manager logs party-auth --tail 2 -n 500
+
+# 日志目录诊断：逐个列出文件/软链接、归档状态、悬空链接，并自检软链接语义
+app-manager status --debug-logs
+app-manager status --debug-logs party-auth    # 只看某个应用
+```
 
 ### 高级命令
 
@@ -145,6 +239,9 @@ app-manager restart myapp
 | `--force, -f` | 强制执行操作 |
 | `--follow, -f` | 实时跟踪（日志命令） |
 | `--lines, -n` | 指定行数（日志命令） |
+| `--history` | 列出该应用所有运行周期的日志（日志命令） |
+| `--tail` | 查看指定序号的运行周期日志，1 为最新（日志命令） |
+| `--debug-logs` | 打印日志目录诊断信息：文件/软链接、归档状态、软链接语义自检 |
 
 ## 配置文件
 
@@ -182,6 +279,13 @@ jvm_params="-Xms512m -Xmx1024m -XX:+UseG1GC"
 startup_delay=0
 # 默认优先级 [选填，默认：100]
 default_priority=100
+# 每个应用保留的归档日志份数 [选填，默认：7]
+# 正整数=保留最近 N 份；0=不留归档（每次停止后清理）；负数=不限制
+# 超出份数后自动删除最旧的归档日志，正在写入的那份不计数也不会被删
+log_keep_count=7
+# CPU 展示单位 [选填，默认：core]
+# core=以核为单位(1.25 core)；m=millicore(1250m, 1000m=1核)；percent=整机占比(6.2%)
+cpu_unit=core
 
 [applications]
 # 单个应用的特殊配置，格式为：appName.priority 和 appName.startup_delay

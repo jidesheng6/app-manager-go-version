@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Optional release tag (empty = use run id artifact only)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Collect build metadata
+        id: meta
+        run: |
+          VERSION="${{ github.event.inputs.tag }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ] || [ "$VERSION" = "develop" ]; then
+            VERSION="dev-$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=$(git rev-parse --abbrev-ref HEAD)" >> "$GITHUB_OUTPUT"
+          echo "describe=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
+          if [ -n "$(git status --porcelain)" ]; then dirty=true; else dirty=false; fi
+          echo "dirty=$dirty" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build multi-arch (official Go)
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.meta.outputs.version }}
+          GIT_COMMIT: ${{ steps.meta.outputs.commit }}
+          GIT_BRANCH: ${{ steps.meta.outputs.branch }}
+          GIT_DESCRIBE: ${{ steps.meta.outputs.describe }}
+          GIT_DIRTY: ${{ steps.meta.outputs.dirty }}
+          BUILD_TIME: ${{ steps.meta.outputs.build_time }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          PKG=app-manager-go-v1/internal/version
+          LDFLAGS="-s -w \
+            -X main.Version=${VERSION} \
+            -X main.Date=${BUILD_TIME} \
+            -X main.Author=DengGuoWei-P7 \
+            -X main.Description=app-manager \
+            -X main.GitCommit=${GIT_COMMIT} \
+            -X main.GitBranch=${GIT_BRANCH} \
+            -X main.GitDescribe=${GIT_DESCRIBE} \
+            -X main.GitDirty=${GIT_DIRTY} \
+            -X ${PKG}.GitCommit=${GIT_COMMIT} \
+            -X ${PKG}.GitBranch=${GIT_BRANCH} \
+            -X ${PKG}.GitDescribe=${GIT_DESCRIBE} \
+            -X ${PKG}.GitDirty=${GIT_DIRTY} \
+            -X ${PKG}.BuildTime=${BUILD_TIME}"
+
+          # Official Go: amd64 / arm64(aarch64) / mips64le / mips64
+          # SW64: 官方 Go 无 GOARCH=sw64，需申威定制工具链，见 README「申威 SW64」
+          for pair in amd64:amd64 arm64:aarch64 mips64le:mips64le mips64:mips64; do
+            arch="${pair%%:*}"
+            name="${pair##*:}"
+            out="dist/app-manager-linux-${name}"
+            echo "==> GOOS=linux GOARCH=${arch} -> ${out}"
+            GOOS=linux GOARCH="${arch}" go build -ldflags "${LDFLAGS}" -o "${out}" .
+          done
+
+          {
+            echo "version=${VERSION}"
+            echo "git_commit=${GIT_COMMIT}"
+            echo "git_branch=${GIT_BRANCH}"
+            echo "git_describe=${GIT_DESCRIBE}"
+            echo "git_dirty=${GIT_DIRTY}"
+            echo "build_time=${BUILD_TIME}"
+            echo "arches=amd64,aarch64,mips64le,mips64"
+            echo "sw64=unsupported_by_official_go_use_shenwei_toolchain"
+          } > dist/BUILD-INFO.txt
+
+          cat > dist/SW64.txt << 'EOF'
+          SW64 / 申威
+          ===========
+          官方 golang.org 工具链不提供 GOARCH=sw64，GitHub Actions 无法交叉编译申威二进制。
+          请在申威机器上使用厂商提供的 Go 工具链本地编译，例如：
+
+            export CGO_ENABLED=0
+            go build -o app-manager-linux-sw64 .
+
+          或把本仓库拷到申威环境后执行同等命令。amd64/arm64/mips64(le) 已由本 Release 提供。
+          EOF
+
+          ls -la dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-manager-${{ steps.meta.outputs.version }}
+          path: dist/*
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            多架构 Linux 二进制（CGO=0）：
+            - `app-manager-linux-amd64`
+            - `app-manager-linux-aarch64`（arm64）
+            - `app-manager-linux-mips64le` / `app-manager-linux-mips64`
+            - SW64：官方 Go 不支持交叉编译，见产物内 `SW64.txt`

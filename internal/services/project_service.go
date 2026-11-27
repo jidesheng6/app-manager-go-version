@@ -366,7 +366,37 @@ app_type="{{APP_TYPE}}"
 #   jvm_params="-Xms2g -Xmx8g -XX:MetaspaceSize=512m -XX:+UseG1GC -XX:G1HeapRegionSize=16m"
 #
 # 注意：必须用双引号包围整个参数字符串
-jvm_params="{{JVM_PARAMS}}"`
+jvm_params="{{JVM_PARAMS}}"
+
+# 每个应用保留的日志份数 [选填，默认：7]
+# 说明：日志按"运行周期"留痕，每次启动生成一份
+#   <app>-<启动时间>启动.log，停止后归档为 <app>-<启动时间>启动-<停止时间>停止.log
+# 本项控制每个应用最多保留多少份已归档日志，超出后自动删除最旧的
+# （正在写入的那份日志不计数、也不会被删）
+# 可选值：
+#   正整数 - 保留的归档份数（例如 7 表示保留最近 7 次运行）
+#   0      - 不留归档，每次停止后清理（只保留当前正在写入的日志）
+#   负数   - 不限制，保留全部留痕
+# 示例：
+#   log_keep_count=7      # 每个应用保留最近 7 份（默认）
+#   log_keep_count=30     # 保留 30 份
+#   log_keep_count=-1     # 不限制
+# 注意：不需要引号包围
+log_keep_count={{LOG_KEEP_COUNT}}
+
+# CPU 展示单位 [选填，默认：core]
+# 说明：ps 的 pcpu 是"占单核百分比"，多核上会超过 100%；程序内部统一换算成绝对量，
+#       本项只影响展示形式，不影响数值本身
+# 可选值：
+#   core    - 以核为单位（默认）: 1.25 core（超过 1 核时附精确值 2.50 core (2500m)）
+#   m       - 以 millicore 为单位: 1250m（1000m = 1 个核，与 k8s requests/limits 口径一致）
+#   percent - 以整机占比为单位: 6.2%（按机器核数换算，多核机器上数值会显得较小）
+# 示例：
+#   cpu_unit=core
+#   cpu_unit=m
+#   cpu_unit=percent
+# 注意：不需要引号包围
+cpu_unit={{CPU_UNIT}}`
 }
 
 // getBackupConfigTemplate 获取备份配置模板
@@ -968,6 +998,8 @@ func (s *ProjectService) createINIConfigFile(configPath string) error {
 	content = strings.ReplaceAll(content, "{{JAVA_PATH}}", s.config.Global.JavaPath)
 	content = strings.ReplaceAll(content, "{{APP_TYPE}}", s.config.Application.AppType)
 	content = strings.ReplaceAll(content, "{{JVM_PARAMS}}", s.config.Application.JVMParams)
+	content = strings.ReplaceAll(content, "{{LOG_KEEP_COUNT}}", fmt.Sprintf("%d", config.KeepLogCount()))
+	content = strings.ReplaceAll(content, "{{CPU_UNIT}}", config.GetCPUUnit())
 	content = strings.ReplaceAll(content, "{{BACKUP_PREFIX}}", s.config.Backup.BackupPrefix)
 	content = strings.ReplaceAll(content, "{{BACKUP_RETENTION_DAYS}}", fmt.Sprintf("%d", s.config.Backup.BackupRetentionDays))
 	content = strings.ReplaceAll(content, "{{LOGROTATE_SIZE}}", s.config.Logrotate.LogrotateSize)

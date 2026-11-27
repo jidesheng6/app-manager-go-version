@@ -43,25 +43,163 @@ func (s *LogService) ViewLog(appName string, lines int, follow bool) error {
 		return fmt.Errorf("未找到应用: %s", appName)
 	}
 
-	if app.LogFile == "" {
+	// 解析当前正在使用的日志（会话日志优先，兼容旧命名）
+	logPath := ResolveCurrentLog(app.Name)
+	if logPath == "" {
+		logPath = app.LogFile
+	}
+	if logPath == "" {
 		return fmt.Errorf("应用 %s 没有配置日志文件", appName)
 	}
 
 	// 检查日志文件是否存在
-	if _, err := os.Stat(app.LogFile); os.IsNotExist(err) {
-		return fmt.Errorf("日志文件不存在: %s", app.LogFile)
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		return fmt.Errorf("日志文件不存在: %s", logPath)
 	}
 
 	logger.Title("查看应用日志")
 	logger.Info("应用名称: %s", app.Name)
-	logger.Info("日志文件: %s", app.LogFile)
+	logger.Info("日志文件: %s", logPath)
 	logger.Println("")
 
+	return s.TailLogFile(logPath, lines, follow)
+}
+
+// TailLogFile 查看指定日志文件的最后若干行，follow 为 true 时实时跟踪
+func (s *LogService) TailLogFile(logFile string, lines int, follow bool) error {
 	if follow {
-		return s.followLogWithTail(app.LogFile, lines)
+		return s.followLogWithTail(logFile, lines)
+	}
+	return s.tailLogWithCommand(logFile, lines)
+}
+
+// ListAppSessions 列出某个应用的全部日志会话（按启动时间倒序）
+func (s *LogService) ListAppSessions(appName string) error {
+	// 解析应用名称，支持模糊匹配
+	appService := NewApplicationService()
+	apps, err := appService.DiscoverApplications()
+	if err != nil {
+		return fmt.Errorf("发现应用失败: %w", err)
 	}
 
-	return s.tailLogWithCommand(app.LogFile, lines)
+	resolvedName := appName
+	if app := apps.FindByName(appName); app != nil {
+		resolvedName = app.Name
+	} else if matches := apps.FindByPattern(appName); len(matches) == 1 {
+		resolvedName = matches[0].Name
+	}
+
+	sessions := ListLogSessions(resolvedName)
+
+	logger.Title("应用日志历史")
+	logger.Info("应用名称: %s", resolvedName)
+	logger.Println("")
+
+	if len(sessions) == 0 {
+		logger.Warning("没有找到日志文件，该应用可能尚未启动过")
+		// 兼容旧命名日志
+		legacy := LegacyLogPath(resolvedName)
+		if _, err := os.Stat(legacy); err == nil {
+			logger.Info("发现旧版命名日志: %s", legacy)
+		}
+		return nil
+	}
+
+	logger.Printf("共 \033[33m%d\033[0m 个运行周期日志（新的在前）:\n\n", len(sessions))
+	for i, session := range sessions {
+		state := "\033[32m运行中\033[0m"
+		duration := ""
+		if session.Stopped {
+			state = "\033[90m已停止\033[0m"
+			if !session.StopTime.IsZero() {
+				duration = " 停止于 " + session.StopTime.Format("2006-01-02 15:04:05") +
+					"（运行 " + formatSessionDuration(session.StopTime.Sub(session.StartTime)) + "）"
+			}
+		}
+		marker := " "
+		if i == 0 {
+			marker = "\033[33m*\033[0m"
+		}
+
+		logger.Printf("%s %2d. 启动 %s  [%s]%s  %s\n",
+			marker, i+1,
+			session.StartTime.Format("2006-01-02 15:04:05"),
+			state,
+			duration,
+			s.formatFileSize(session.Size))
+		logger.Printf("      %s\n", session.Path)
+	}
+
+	logger.Println("")
+	logger.Info("查看指定会话: %s logs %s --tail <序号> [-n 行数]", config.GetProgramName(), resolvedName)
+
+	return nil
+}
+
+// TailLogSession 查看某个应用指定序号的日志会话（序号从 1 开始，1 为最新一次运行）
+func (s *LogService) TailLogSession(appName string, index int, lines int, follow bool) error {
+	appService := NewApplicationService()
+	apps, err := appService.DiscoverApplications()
+	if err != nil {
+		return fmt.Errorf("发现应用失败: %w", err)
+	}
+
+	resolvedName := appName
+	if app := apps.FindByName(appName); app != nil {
+		resolvedName = app.Name
+	} else if matches := apps.FindByPattern(appName); len(matches) == 1 {
+		resolvedName = matches[0].Name
+	}
+
+	sessions := ListLogSessions(resolvedName)
+	if len(sessions) == 0 {
+		return fmt.Errorf("应用 %s 没有历史日志", resolvedName)
+	}
+	if index < 1 || index > len(sessions) {
+		return fmt.Errorf("会话序号 %d 超出范围 (1-%d)", index, len(sessions))
+	}
+
+	session := sessions[index-1]
+
+	logger.Title("查看历史日志")
+	logger.Info("应用名称: %s", resolvedName)
+	logger.Info("启动时间: %s", session.StartTime.Format("2006-01-02 15:04:05"))
+	if session.Stopped && !session.StopTime.IsZero() {
+		logger.Info("停止时间: %s（运行 %s）",
+			session.StopTime.Format("2006-01-02 15:04:05"),
+			formatSessionDuration(session.StopTime.Sub(session.StartTime)))
+	} else {
+		logger.Info("状态: 运行中/未归档")
+	}
+	logger.Info("日志文件: %s", session.Path)
+	logger.Println("")
+
+	return s.TailLogFile(session.Path, lines, follow)
+}
+
+// statusText 会话状态文本
+func statusText(stopped bool) string {
+	if stopped {
+		return "已归档"
+	}
+	return "运行中/未归档"
+}
+
+// formatSessionDuration 把会话时长格式化为人类可读文本
+func formatSessionDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+
+	seconds := int(d.Seconds())
+	switch {
+	case seconds < 60:
+		return fmt.Sprintf("%d 秒", seconds)
+	case seconds < 3600:
+		return fmt.Sprintf("%d 分 %d 秒", seconds/60, seconds%60)
+	default:
+		return fmt.Sprintf("%d 小时 %d 分", seconds/3600, (seconds%3600)/60)
+	}
 }
 
 // tailLogWithCommand 使用Linux原生tail命令显示日志文件的最后几行
@@ -126,7 +264,25 @@ func (ls *LogService) generateLogrotateConfig(projectRoot, description string) s
 	configBuilder.WriteString("# App Manager 统一日志轮转配置\n")
 	configBuilder.WriteString(fmt.Sprintf("# 项目路径: %s\n\n", projectRoot))
 
-	// 为 .log 文件创建配置块
+	// 会话日志: <app>-<启动时间>启动.log / <app>-<启动时间>启动-<停止时间>停止.log
+	// 兼容旧命名: <app>-<启动时间>.log / <app>-<启动时间>-停止.log
+	// 注意: 当前正在写入的日志由 app-manager 在 stop 时归档，logrotate 只兜底处理超大/超期的历史文件
+	configBuilder.WriteString("# 会话日志（按运行周期留痕，由 app-manager 自动归档）\n")
+	configBuilder.WriteString(fmt.Sprintf("%s/*-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.log {\n", logsDir))
+	configBuilder.WriteString(fmt.Sprintf("    %s\n", ls.config.Logrotate.LogrotateCycle))
+	configBuilder.WriteString("    missingok\n")
+	configBuilder.WriteString(fmt.Sprintf("    rotate %d\n", ls.config.Logrotate.LogrotateRotate))
+	configBuilder.WriteString(fmt.Sprintf("    size %s\n", ls.config.Logrotate.LogrotateSize))
+	configBuilder.WriteString("    compress\n")
+	configBuilder.WriteString("    delaycompress\n")
+	configBuilder.WriteString("    notifempty\n")
+	configBuilder.WriteString("    copytruncate\n")
+	configBuilder.WriteString("    create 644 root root\n")
+	configBuilder.WriteString(fmt.Sprintf("    olddir %s\n", rotateLogsDir))
+	configBuilder.WriteString("}\n\n")
+
+	// 兼容旧版固定命名的日志文件 <app>.log
+	configBuilder.WriteString("# 旧版固定命名日志（兼容保留）\n")
 	configBuilder.WriteString(fmt.Sprintf("%s/*.log {\n", logsDir))
 	configBuilder.WriteString(fmt.Sprintf("    %s\n", ls.config.Logrotate.LogrotateCycle))
 	configBuilder.WriteString("    missingok\n")
@@ -524,17 +680,26 @@ func (s *LogService) ListLogs() error {
 	for _, app := range apps {
 		logger.Printf("应用: \033[33m%s\033[0m\n", app.Name)
 
-		if app.LogFile == "" {
+		logPath := ResolveCurrentLog(app.Name)
+		if logPath == "" {
+			logPath = app.LogFile
+		}
+
+		if logPath == "" {
 			logger.Printf("  日志文件: \033[31m未配置\033[0m\n")
-		} else if _, err := os.Stat(app.LogFile); os.IsNotExist(err) {
-			logger.Printf("  日志文件: \033[31m%s (不存在)\033[0m\n", app.LogFile)
+		} else if _, err := os.Stat(logPath); os.IsNotExist(err) {
+			logger.Printf("  日志文件: \033[31m%s (不存在)\033[0m\n", logPath)
 		} else {
-			stat, _ := os.Stat(app.LogFile)
+			stat, _ := os.Stat(logPath)
 			size := s.formatFileSize(stat.Size())
 			modTime := stat.ModTime().Format("2006-01-02 15:04:05")
-			logger.Printf("  日志文件: \033[32m%s\033[0m\n", app.LogFile)
+			logger.Printf("  当前日志: \033[32m%s\033[0m\n", logPath)
 			logger.Printf("  文件大小: %s\n", size)
 			logger.Printf("  修改时间: %s\n", modTime)
+		}
+
+		if sessions := CountLogSessions(app.Name); sessions > 0 {
+			logger.Printf("  历史会话: %d 个 (查看: %s logs %s --history)\n", sessions, config.GetProgramName(), app.Name)
 		}
 		logger.Println("")
 	}
