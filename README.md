@@ -90,18 +90,20 @@ Build:   10980d9 (feat/log-retention@10980d9, 工作区有未提交改动, 构�
 
 官方 Go（`golang.org`）**没有** `GOARCH=sw64`，也不能用标准发行版交叉编译；GitHub Actions / `build-linux.ps1` 只产出 amd64、aarch64、mips64le、mips64。
 
-**工具链从哪拿**：到 [申威社区](https://developer.wxiat.cn/) → 生态 / 工具链下载页（常见入口：`https://developer.wxiat.com/#/ecology/build`），下载 **go-sw64**（社区实测可用如 `go1.20.10 sw1.0.0 linux/sw64`）。同页还有依赖适配用的 `sw-go-porter`。  
-说明：该站多为 SPA，需登录/浏览器打开；**不在** `go.dev/dl`。上游 Go 明确不收录 SW64（见 [golang/go#37877](https://github.com/golang/go/issues/37877)）。
+**工具链从哪拿**：申威社区基础软件详情页  
+[https://developer.wxiat.cn/#/ecology/basicsoftware/detail/10007](https://developer.wxiat.cn/#/ecology/basicsoftware/detail/10007)  
+（需浏览器打开/可能要登录；包名一般为 **go-sw64**，安装后 `go version` 类似 `go1.20.10 sw1.0.0 linux/sw64`。）  
+**不是** `go.dev/dl`；上游官方 Go 不收录 SW64（见 [golang/go#37877](https://github.com/golang/go/issues/37877)）。
 
-在申威机器上安装厂商包后验证并编译：
+**GitHub Actions 做不了 SW64**：没有 `linux/sw64` runner，官方 `GOARCH=sw64` 也不存在，无法在 CI 交叉编译。Actions 只发 amd64/aarch64/mips64(le)；SW64 必须在申威机器上用上面的厂商工具链本地编。
 
 ```bash
-go version   # 期望类似: go version go1.20.10 sw1.0.0 linux/sw64
+go version   # 期望含 linux/sw64
 export CGO_ENABLED=0
 go build -o app-manager-linux-sw64 .
 ```
 
-若依赖里的 `golang.org/x/sys/unix` 缺 sw64 桩，用工具链自带的 unix 包覆盖，或按社区文档使用 `sw-go-porter`。Release 产物里的 `SW64.txt` 也有简要说明。
+若依赖里的 `golang.org/x/sys/unix` 缺桩，用工具链自带 unix 包覆盖，或按社区文档使用 `sw-go-porter`。
 
 ### GitHub Actions
 
